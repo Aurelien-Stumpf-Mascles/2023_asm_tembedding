@@ -51,7 +51,7 @@ def euclidean_similarity(
     return pos_dist, neg_dist
 
 def infonce(
-        pos_dist: torch.Tensor, neg_dist: torch.Tensor
+        pos_dist: torch.Tensor, neg_dist: torch.Tensor, beta
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """InfoNCE implementation
 
@@ -59,9 +59,9 @@ def infonce(
     """
     align = (-pos_dist).mean()
     uniform = torch.logsumexp(neg_dist, dim=1).mean()
-    return align + uniform, align, uniform
+    return align + beta*uniform, align, uniform
 
-class InfoNCE():
+class CosineInfoNCE():
  
     """InfoNCE base loss with a fixed temperature.
 
@@ -70,11 +70,31 @@ class InfoNCE():
             The softmax temperature
     """
 
-    def __init__(self, temperature: float = 1.0):
+    def __init__(self, temperature: float = 1.0, beta : float = 1.0):
         super().__init__()
         self.temperature = temperature
+        self.beta = beta
 
     def __call__(self, ref: torch.Tensor, pos: torch.Tensor,
                   neg: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         pos_dist, neg_dist = dot_similarity(ref, pos, neg)
-        return infonce(pos_dist/self.temperature,neg_dist/self.temperature)
+        return infonce(pos_dist/self.temperature,neg_dist/self.temperature,self.beta)
+    
+class EuclideanInfoNCE():
+ 
+    """InfoNCE base loss with a fixed temperature.
+
+    Attributes:
+        temperature:
+            The softmax temperature
+    """
+
+    def __init__(self, temperature: float = 1.0, beta = 1.0):
+        super().__init__()
+        self.temperature = temperature
+        self.beta = beta
+
+    def __call__(self, ref: torch.Tensor, pos: torch.Tensor,
+                  neg: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        pos_dist, neg_dist = euclidean_similarity(ref, pos, neg)
+        return infonce(pos_dist/self.temperature,neg_dist/self.temperature,self.beta)

@@ -12,7 +12,6 @@ import cebra_v2.distribution
 
 class Batch:
     """A batch of reference, positive, negative samples and an optional index.
-
     Attributes:
         reference: The reference samples, typically sampled from the prior
             distribution
@@ -30,9 +29,8 @@ class Batch:
     def __init__(self,
                  reference,
                  positive,
-                 negative,
-                 index=None,
-                 index_reversed=None):
+                 negative):
+
         self.reference = reference
         self.positive = positive
         self.negative = negative
@@ -44,19 +42,31 @@ class Batch:
         self.negative = self.negative.to(device)
 
 class BatchIndex:
-    def __init__(self,positive,negative,reference):
+    def __init__(self,positive,negative,reference,                 
+                session_ref=None,
+                session_pos=None,
+                session_neg=None):
+                 
+        self.reference = reference
         self.positive = positive
         self.negative = negative
-        self.reference = reference
+
+        if not(session_ref is None):
+            self.session_ref = session_ref
+
+        if not(session_pos is None):
+            self.session_pos = session_pos
+
+        if not(session_neg is None):
+            self.session_neg = session_neg
+
 
 class TensorDataset(torch.utils.data.Dataset):
     """Discrete and/or continuously indexed dataset based on torch/numpy arrays.
-
     If dealing with datasets sufficiently small to fit :py:func:`numpy.array` or :py:class:`torch.Tensor`, this
     dataset is sufficient---the sampling auxiliary variable should be specified with a dataloader.
     Based on whether `continuous` and/or `discrete` auxiliary variables are provided, this class
     can be used with the discrete, continuous and/or mixed data loader classes.
-
     Args:
         neural:
             Array of dtype ``float`` or float Tensor of shape ``(N, D)``, containing neural activity over time.
@@ -66,16 +76,13 @@ class TensorDataset(torch.utils.data.Dataset):
         discrete:
             Array of dtype ```int64`` or integer Tensor of shape ``(N, d)``, containing the discrete behavior
             variables over the same time dimension.
-
     Example:
-
         >>> import cebra.data
         >>> import torch
         >>> data = torch.randn((100, 30))
         >>> index1 = torch.randn((100, 2))
         >>> index2 = torch.randint(0,5,(100, ))
         >>> dataset = cebra.d    print(dataset[torch.arange(len(dataset))])ata.datasets.TensorDataset(data, continuous=index1, discrete=index2)
-
     """
 
     def __init__(
@@ -86,10 +93,19 @@ class TensorDataset(torch.utils.data.Dataset):
         offset: int = 1,
     ):
         super().__init__()
+
         self.neural = self._to_tensor(neural, torch.FloatTensor).float()
-        if not(continuous is None and discrete is None):
-            self.continuous = self._to_tensor(continuous, torch.FloatTensor)
+
+        if discrete is not None:
             self.discrete = self._to_tensor(discrete, torch.LongTensor)
+        else :
+            self.discrete = None
+
+        if continuous is not None : 
+            self.continuous = self._to_tensor(continuous, torch.FloatTensor)
+        else : 
+            self.continuous = None
+
         self.offset = offset
 
     def _to_tensor(self, array, check_dtype=None):
@@ -119,21 +135,16 @@ class TensorDataset(torch.utils.data.Dataset):
 
 class Loader(torch.utils.data.DataLoader): 
     """Dataloader class.
-
     Reference and negative samples will be drawn from a uniform prior
     distribution. Depending on the ``prior`` attribute, the prior
     will uniform over time-steps (setting ``empirical``), or be adjusted
     such that each discrete value in the dataset is uniformly distributed
     (setting ``uniform``).
-
     Positive samples are sampled according to the specified distribution 
-
     Args:
         See dataclass fields.
-
     Yields:
         Batches of the specified size from the given dataset object.
-
     Note:
         The ``__iter__`` method is non-deterministic, unless explicit seeding is implemented
         in derived classes. It is recommended to avoid global seeding in numpy
@@ -141,27 +152,28 @@ class Loader(torch.utils.data.DataLoader):
         drawing samples.
     """
 
-    def __init__(self,data,num_steps,batch_size,time_delta):
+    def __init__(self,data,num_steps = 100,batch_size = 128,time_delta = 1,matrix_delta = 20, distance = None):
         super(Loader,self).__init__(dataset = data,batch_size = batch_size)
         self.num_steps = num_steps
-        self.distribution = cebra_v2.distribution.Distribution(len(data), data, time_delta, time_delta)
+        if distance is not None :
+            self.distribution = cebra_v2.distribution.Distribution_MatrixDistance(len(data), data, distance, 0, matrix_delta)
+        elif data.discrete is not None :
+            self.distribution = cebra_v2.distribution.Distribution_Discrete(len(data), data, time_delta, time_delta)
+        else:
+            self.distribution = cebra_v2.distribution.Distribution(len(data), data, time_delta, time_delta)
         #    discrete=self.dindex,
         #    continuous=self.cindex,
         #    time_delta=self.time_offset)
 
     def get_indices(self, num_samples: int) -> BatchIndex:
         """Samples indices for reference, positive and negative examples.
-
         The reference and negative samples will be sampled uniformly from
         all available time steps.
-
         The positive samples will be sampled conditional on the reference
         samples according to the specified ``conditional`` distribution.
-
         Args:
             num_samples: The number of samples (batch size) of the returned
                 :py:class:`cebra.data.datatypes.BatchIndex`.
-
         Returns:
             Indices for reference, positive and negatives samples.
         """
@@ -183,3 +195,269 @@ class Loader(torch.utils.data.DataLoader):
         for i in range(self.num_steps):
             index = self.get_indices(num_samples=self.batch_size)
             yield i,self.dataset.load_batch(index)
+
+class SimpleMultiSessionDataset(torch.utils.data.Dataset):
+    """A dataset spanning multiple recording sessions.
+
+    Simple Multi session datasets share the same dimensionality across the index 
+    as well as between different sessions.
+
+    Multi-session datasets where the number of neurons is constant across sessions
+    should utilize the normal ``Dataset`` class with a ``MultisessionLoader`` for
+    better efficiency when sampling.
+
+    Attributes:
+        offset: The offset determines the shape of the data obtained with the
+            ``__getitem__`` and :py:meth:`.base.Dataset.expand_index` methods.
+    """
+
+    def __init__(
+            self,
+            neural,
+            continuous = None,
+            discrete = None,
+            offset: int = 1,
+        ):
+        super().__init__()
+
+        self.neural = self._to_tensor(neural, torch.FloatTensor).float()
+
+        if discrete is not None:
+            self.discrete = self._to_tensor(discrete, torch.LongTensor)
+        else :
+            self.discrete = None
+
+        if continuous is not None : 
+            self.continuous = self._to_tensor(continuous, torch.FloatTensor)
+        else : 
+            self.continuous = None
+
+        self.offset = offset
+        self.num_sessions = self.set_num_sessions()
+
+    def _to_tensor(self, array, check_dtype=None):
+        if array is None:
+            return None
+        if isinstance(array, np.ndarray):
+            array = torch.from_numpy(array)
+        return array
+
+    def set_num_sessions(self) -> int:
+        """The number of sessions in the dataset."""
+        return self.neural.shape[0]
+
+    def load_batch(self, index: BatchIndex) -> List[Batch]:
+        """Return the data at the specified index location."""
+        return Batch(
+                reference= torch.stack([self.neural[index[0],index[1]] for index in index.reference]),
+                positive= torch.stack([self.neural[index[0],index[1]] for index in index.positive]) ,
+                negative= torch.stack([self.neural[index[0],index[1]] for index in index.negative])
+            )
+
+    def __getitem__(self, index):
+        batch = self.load_batch(index)
+        return batch
+    
+    def get_duration(self):
+        return self.neural.shape[1]
+
+class MultiSessionLoader(torch.utils.data.DataLoader):
+    """Dataloader for multi-session datasets.
+
+    The loader will enforce a uniform distribution across the sessions.
+    Note that if samples within different sessions share the same feature
+    dimension, it is better to use a :py:class:`cebra.data.single_session.MixedDataLoader`.
+    """
+
+    def __init__(self,data,num_steps = 100,batch_size = 128,time_delta = 1,matrix_delta = 20, distance = None):
+        super(MultiSessionLoader,self).__init__(dataset = data,batch_size = batch_size)
+        self.num_steps = num_steps
+        if distance is not None :
+            self.distribution = cebra_v2.distribution.MultiSessionDistribution_TimeAndDistanceMatrix(data.get_duration(), data, distance, time_delta, time_delta, matrix_delta)
+        elif data.discrete is not None :
+            self.distribution = cebra_v2.distribution.MultiSessionDistribution_Discrete(data.get_duration(), data, time_delta, time_delta)
+        else:
+            self.distribution = cebra_v2.distribution.MultiSessionDistribution()
+        #    discrete=self.dindex,
+        #    continuous=self.cindex,
+        #    time_delta=self.time_offset)
+
+    def get_indices(self, num_samples: int) -> List[BatchIndex]:
+        """Samples indices for reference, positive and negative examples.
+
+        The reference and negative samples will be sampled uniformly from
+        all available time steps.
+
+        The positive samples will be sampled conditional on the reference
+        samples according to the specified ``conditional`` distribution.
+
+        Args:
+            num_samples: The number of samples (batch size) of the returned
+                :py:class:`cebra.data.datatypes.BatchIndex`.
+
+        Returns:
+            Indices for reference, positive and negatives samples.
+        """
+
+        ref_idx = self.distribution.sample_prior(self.batch_size)
+        neg_idx = self.distribution.sample_negative(self.batch_size)
+        pos_idx = self.distribution.sample_conditional(ref_idx)
+
+        return BatchIndex(
+            reference=ref_idx,
+            positive=pos_idx,
+            negative=neg_idx
+        )
+
+    def __len__(self):
+        """The number of batches returned when calling as an iterator."""
+        return self.num_steps
+
+    def __iter__(self) -> Batch:
+        for i in range(self.num_steps):
+            index = self.get_indices(num_samples=self.batch_size)
+            yield i,self.dataset.load_batch(index)
+
+class MultiSessionDataset2():
+    """A dataset spanning multiple recording sessions.
+
+    Multi session datasets share the same dimensionality across the index,
+    but can have differing feature dimensions (e.g. number of neurons) between
+    different sessions.
+
+    Multi-session datasets where the number of neurons is constant across sessions
+    should utilize the normal ``Dataset`` class with a ``MultisessionLoader`` for
+    better efficiency when sampling.
+
+    Attributes:
+        offset: The offset determines the shape of the data obtained with the
+            ``__getitem__`` and :py:meth:`.base.Dataset.expand_index` methods.
+    """
+
+    def __init__(
+        self,
+        *datasets: TensorDataset,
+    ):
+        super().__init__()
+        self._datasets: List[
+            TensorDataset] = self._unpack_dataset_arguments(
+                datasets)
+
+    @property
+    def num_sessions(self) -> int:
+        """The number of sessions in the dataset."""
+        return len(self._datasets)
+
+    @property
+    def input_dimension(self):
+        return super().input_dimension
+
+    def get_input_dimension(self, session_id: int) -> int:
+        """Get the feature dimension of the required session.
+
+        Args:
+            session_id: The session ID, an integer between 0 and
+                :py:attr:`num_sessions`.
+
+        Returns:
+            A single session input dimension for the requested session id.
+        """
+        return self.get_session(session_id).input_dimension
+
+    def get_session(self, session_id: int) -> TensorDataset:
+        """Get the dataset for the specified session.
+
+        Args:
+            session_id: The session ID, an integer between 0 and
+                :py:attr:`num_sessions`.
+
+        Returns:
+            A single session dataset for the requested session
+            id.
+        """
+        return self._datasets[session_id]
+
+    def _apply(self, func):
+        return (func(data) for data in self.iter_sessions())
+
+    @property
+    def session_lengths(self) -> List[int]:
+        return [len(session) for session in self.iter_sessions()]
+
+    def iter_sessions(self):
+        for i in range(self.num_sessions):
+            yield self.get_session(i)
+
+    def __getitem__(self, args) -> List[Batch]:
+        """Return a set of samples from all sessions."""
+        session_id, index = args
+        return self.get_session(session_id).__getitem__(index)
+
+    def load_batch(self, index: BatchIndex) -> List[Batch]:
+        """Return the data at the specified index location."""
+        return Batch(
+                reference= torch.cat([self.get_session(index.session_ref[i])[index.reference[i]] for i in range(len(index.reference))]),
+                positive= torch.cat([self.get_session(index.session_pos[i])[index.positive[i]] for i in range(len(index.positive))]) ,
+                negative= torch.cat([self.get_session(index.session_neg[i])[index.negative[i]] for i in range(len(index.negative))])
+            )
+        
+
+class MultiSessionLoader2(torch.utils.data.DataLoader):
+    """Dataloader for multi-session datasets.
+
+    The loader will enforce a uniform distribution across the sessions.
+    Note that if samples within different sessions share the same feature
+    dimension, it is better to use a :py:class:`cebra.data.single_session.MixedDataLoader`.
+    """
+
+    def __init__(self,data,num_steps,batch_size):
+        super(Loader,self).__init__(dataset = data,batch_size = batch_size)
+        self.num_steps = num_steps
+        self.distribution = cebra_v2.distribution.MultiSessionDistribution(len(data), data, 15)
+
+    def get_indices(self, num_samples: int) -> List[BatchIndex]:
+        """Samples indices for reference, positive and negative examples.
+
+        The reference and negative samples will be sampled uniformly from
+        all available time steps.
+
+        The positive samples will be sampled conditional on the reference
+        samples according to the specified ``conditional`` distribution.
+
+        Args:
+            num_samples: The number of samples (batch size) of the returned
+                :py:class:`cebra.data.datatypes.BatchIndex`.
+
+        Returns:
+            Indices for reference, positive and negatives samples.
+        """
+
+        ref_idx = self.distribution.sample_prior(self.batch_size)
+        neg_idx = self.distribution.sample_prior(self.batch_size)
+        pos_idx, idx = self.distribution.sample_conditional(ref_idx)
+
+        ref_idx = torch.from_numpy(ref_idx[:,0])
+        ref_session = torch.from_numpy(ref_idx[:,1])
+        neg_idx = torch.from_numpy(neg_idx[:,0])
+        neg_session = torch.from_numpy(neg_idx[:,1])
+        pos_idx = torch.from_numpy(pos_idx[:,0])
+        pos_session = torch.from_numpy(pos_idx[:,1])
+
+        return BatchIndex(
+            reference=ref_idx,
+            positive=pos_idx,
+            negative=neg_idx,
+            ref_session = ref_session,
+            pos_session = pos_session,
+            neg_session = neg_session
+        )
+
+    def __len__(self):
+        """The number of batches returned when calling as an iterator."""
+        return self.num_steps
+
+    def __iter__(self) -> Batch:
+        for i in range(self.num_steps):
+            index = self.get_indices(num_samples=self.batch_size)
+            yield i,self.dataset.load_batch(index)
+
