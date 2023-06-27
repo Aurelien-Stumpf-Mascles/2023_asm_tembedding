@@ -42,6 +42,12 @@ def eeg_markers(epochs_file, outdir, basename, njobs=1):
     Robust EEG-based cross-site and cross-protocol classification of states
     of consciousness, Brain, 2018.
     """
+    # Check if already done
+    outfile = os.path.join(outdir, f"{basename}_makers.tsv")
+    if os.path.isfile(outfile):
+        print(f"{outfile} already on disk.")
+        return
+
     epochs = mne.read_epochs(epochs_file)
     backend = "python"
     # > we define one base estimator to avoid recomputation when looking up
@@ -142,5 +148,4 @@ def eeg_markers(epochs_file, outdir, basename, njobs=1):
     # Saving markers
     df = pd.DataFrame(
         X, columns=["-".join(item.split("/")[2:]) for item in markers.keys()])
-    df.to_csv(os.path.join(outdir, f"{basename}_makers.tsv"), sep="\t",
-              index=False)        
+    df.to_csv(outfile, sep="\t", index=False)        
