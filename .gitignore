@@ -127,3 +127,14 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Containers 
+*.sif
+
+# Folders
+data/**
+data
+models
+models/**
+cebra_true/**
+cebra_true

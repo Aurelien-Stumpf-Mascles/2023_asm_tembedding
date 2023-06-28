@@ -23,31 +23,38 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class Distribution:
-    """Distribution across a single session which moves closer point close in time"""
-
-    def __init__(self, T, data, offset, time_delta: int = 1): #discrete, continuous,
+class Distribution(object):
+    """ Distribution across a single session which moves closer point close
+    in time.
+    """
+    def __init__(self, T, data, offset, time_delta: int = 1):
         self.T = T
         self.data = data
-        #self.discrete = discrete
-        #self.continuous = continuous 
-        self.time_delta = time_delta #biggest time difference for positives
+        self.time_delta = time_delta
         self.offset = offset
 
     def sample_prior(self, num_samples: int) -> torch.Tensor:
-        """Return indices from a uniform prior distribution.
+        """ Return indices from a uniform prior distribution.
         Prior distributions return a batch of indices. Indexing
         the dataset with these indices will return samples from
         the prior distribution.
-        Args:
-            num_samples: The number of samples
-        Returns:
+
+        Parameters
+        ----------
+        num_samples: int
+            The number of samples.
+
+        Returns
+        -------
+        ref_indices: Tensor
             The reference indices of shape ``(num_samples, )``.
         """
         return torch.randint(self.T - self.offset,size = (num_samples,))
 
-    def sample_conditional(self, reference_idx: torch.Tensor, num_samples) -> torch.Tensor:
-        """Return indices from the conditional distribution knowing a batch of reference indices
+    def sample_conditional(self, reference_idx: torch.Tensor,
+                           num_samples) -> torch.Tensor:
+        """ Return indices from the conditional distribution knowing a batch
+        of reference indices.
         Conditional distributions return a bTypeError: torch._VariableFunctionsClass.from_numpy() takes no keyword argumentsatch of indices. Indexing
         the dataset with these indices will return samples from
         the prior distribution.
@@ -58,7 +65,6 @@ class Distribution:
             samples in their discrete variable, and will otherwise be drawn from
             the :py:class:`.TimedeltaDistribution`.
         """
-
         if reference_idx.dim() != 1:
             raise ValueError(
                 f"Reference indices have wrong shape: {reference_idx.shape}. "

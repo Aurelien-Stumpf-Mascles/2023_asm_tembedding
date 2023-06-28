@@ -1,9 +1,0 @@
-#PBS -N Aurel_Test
-#PBS -q Nspin_long
-#PBS -l nodes=1:ppn=10
-#PBS -l mem=64gb
-#PBS -l walltime=5:00:00
-#PBS -j oe                      
-#PBS -o gettingStarted.out
-
-python3 /neurospin/lbi/monkeyfmri/deepstim/workspace/2023_ASM_tembedding/gitproject/2023_asm_tembedding/singularity/pbs_scripts/test.py

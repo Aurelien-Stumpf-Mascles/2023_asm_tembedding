@@ -1,0 +1,23 @@
+Bootstrap: docker
+From: ubuntu:latest
+
+%labels
+    Maintainer: Project Team
+    Github: https://github.com/neurospin-projects/2023_asm_tembedding
+    Version v1.0
+
+%files
+    ../tembedding /code/python/tembedding
+    ../requirements.txt /code/python/tembedding/requirements.txt
+
+%post
+    chmod -R 777 /code/python
+    apt-get update && apt-get install -y python3-venv && apt-get install -y python3-pip
+    pip install -r /code/python/tembedding/requirements.txt
+
+%environment
+    export PYTHONPATH=$PYTHONPATH:/code/python
+
+%runscript
+    python3 /code/python/tembedding/scripts/tembedding "$@"
+
