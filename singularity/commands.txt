@@ -1,9 +1,0 @@
-To build container : 
-- singularity build my_container.sif image.def
-
-To run container with session :
-- singularity run --bind /volatile,/neurospin container.sif \
-                /neurospin/lbi/monkeyfmri/deepstim/database/ANESTHETIC_database/derivatives/reference_kmeans/inputs/inputs.npy \
-                /neurospin/lbi/monkeyfmri/deepstim/database/ANESTHETIC_database/derivatives/reference_kmeans/inputs/metadata.tsv \
-                /volatile/aurelien_stumpf_mascles/project/data/DistanceMatrices/all/distance_all.npy \
-                session
