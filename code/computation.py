@@ -31,6 +31,7 @@ def main(argv):
     path_meta = argv[1]
     path_distance = argv[2]
     session = int(argv[3])
+    print("Session {}".format(session))
 
     dfc = np.load(path_dfc)
     print("dfc data loaded")
@@ -44,9 +45,6 @@ def main(argv):
     dfc_all_tensor_norm = dfc_all_tensor - torch.mean(dfc_all_tensor,dim = [-2,-1]).reshape(156,464,1,1)
     print("dfc processed")
 
-    distance = np.load(path_distance)
-    print("distance data loaded")
-
     for j in range(464):
         print("Element {}".format(j))
         for i in range(156):
@@ -55,7 +53,11 @@ def main(argv):
             distance[session,j,i,:] = accu
             distance[i,:,session,j] = accu
 
-    distance = np.save(path_distance)
+    distance = np.load(path_distance)
+    print("distance data loaded")
+
+    distance = np.save(path_distance,arr = distance)
+    print("distance data saved")
 
 if __name__ == "__main__":
    main(sys.argv[1:])

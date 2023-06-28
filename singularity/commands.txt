@@ -1,5 +1,5 @@
 To build container : 
-- singularity build my_container.sif image.def
+- singularity build container.sif image.def
 
 To run container with session :
 - singularity run --bind /volatile,/neurospin container.sif \
