@@ -34,14 +34,14 @@ preproc = "nsm"
 data_dir = "/neurospin/lbi/monkeyfmri/deepstim/database/ANESTHETIC_database/derivatives/{0}".format(preproc)
 outdir_name = "{0}_timeseries".format(preproc)
 mask_file = "/neurospin/lbi/monkeyfmri/images/reference/mni-resampled_1by1by1.nii"
-atlas = None #"/neurospin/lbi/monkeyfmri/resting_state/references/rRM_F99_ROItemplate_MNI.nii"  # cocomac
+atlas = "/neurospin/lbi/monkeyfmri/resting_state/references/rRM_F99_ROItemplate_MNI.nii"  # cocomac
 add_derivates = False
 add_compor = False
 fwhm = None  #3.
 tr = 2.4
 n_dummy_trs = 4
-low_pass = 0.005
-high_pass = 0.0025
+low_pass = 0.1
+high_pass = 0.02
 locs = [(48, 35, 22), (21, 58, 33)]
 n_jobs = 10
 
@@ -153,17 +153,17 @@ def preproc_timeseries(image_file, mask_file, confounds_file, tr, output_dir,
     signals = signals[n_dummy_trs:]
 
     # Clean signal
-    #clean_signals = nilearn.signal.clean(
-    #    signals, detrend=True, standardize="zscore",
-    #    confounds=confounds, standardize_confounds=True,
-    #    low_pass=low_pass, high_pass=high_pass, t_r=tr)
+    clean_signals = nilearn.signal.clean(
+        signals, detrend=True, standardize="zscore",
+        confounds=confounds, standardize_confounds=True,
+        low_pass=low_pass, high_pass=high_pass, t_r=tr)
 
     # Reshape data
-    #clean_im = nilearn.masking.unmask(clean_signals, mask_im)
-
-    clean_signals = nilearn.signal.clean(
-        signals, detrend=True, standardize=False, high_pass = 0.05, t_r=tr)
     clean_im = nilearn.masking.unmask(clean_signals, mask_im)
+
+    #clean_signals = nilearn.signal.clean(
+    #    signals, detrend=True, standardize=False, high_pass = 0.05, t_r=tr)
+    #clean_im = nilearn.masking.unmask(clean_signals, mask_im)
 
     # Smooth the data
     if fwhm is not None:
@@ -247,13 +247,14 @@ for index, row in df.iterrows():
 
 print("nb runs: {0} / {1}".format(len(dataset), len(df)))
 
+dataset = np.array(dataset)
 
 # Parallel call
 Parallel(n_jobs=n_jobs, verbose=20)(delayed(preproc_timeseries)(
     fmri_file, mask_file, confounds_file, tr=tr, output_dir=outdir,
     n_dummy_trs=n_dummy_trs, add_derivates=add_derivates, low_pass=low_pass,
     high_pass=high_pass, fwhm=fwhm, atlas=atlas, locs=locs, add_compor=add_compor)
-        for fmri_file, confounds_file, outdir in dataset[:2])
+        for fmri_file, confounds_file, outdir in dataset[[1,120]])
 
 #for fmri_file, confounds_file, outdir in dataset :
 #    preproc_timeseries(fmri_file, mask_file, confounds_file, tr=tr, output_dir=outdir,
