@@ -242,6 +242,7 @@ def structure_batch(img1, img2, window_size=11, window=None, full=False):
     
     return ret
 
+
 def stable_distance(data,threshold):
     res = torch.zeros((data.shape[0],data.shape[1]))
     for session in range(data.shape[0]):
@@ -337,13 +338,25 @@ def flatten_higher_triangular(data):
     return res
 
 def reconstruct_matrix(data):
-    if len(data.shape) == 2 : 
+    if len(data.shape) == 1:
+        n, = data.shape
+        res = torch.zeros((82,82))
+        compteur = 0
+        for k in range(82):
+            res[k,:k] = data[compteur:compteur+k]
+            compteur += k
+        for k in range(82):
+            res[k,k+1:] = res[k+1:,k]
+
+    elif len(data.shape) == 2 : 
         n,m = data.shape
         res = torch.ones((n,82,82))
         for i in range(n):
             accu = torch.Tensor([])
             for k in range(82):
-                res[i,k,k+1:] = data[i,]
+                accu = torch.cat([accu,data[i,j,k,k+1:]])
+            res[i,k,k+1:] = data[i,]
+
     else :
         n,m,p,_ = data.shape
         res = np.zeros((n,m,82,82))
@@ -353,6 +366,7 @@ def reconstruct_matrix(data):
                 for k in range(p-1):
                     accu = torch.cat([accu,data[i,j,k,k+1:]])
                 res[i,j,:] = accu
+
     return res
 
 

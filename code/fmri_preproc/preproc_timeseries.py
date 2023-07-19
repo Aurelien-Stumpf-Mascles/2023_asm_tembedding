@@ -40,8 +40,8 @@ add_compor = False
 fwhm = None  #3.
 tr = 2.4
 n_dummy_trs = 4
-low_pass = 0.1
-high_pass = 0.02
+low_pass = 0.08
+high_pass = 0.04
 locs = [(48, 35, 22), (21, 58, 33)]
 n_jobs = 10
 
@@ -254,7 +254,7 @@ Parallel(n_jobs=n_jobs, verbose=20)(delayed(preproc_timeseries)(
     fmri_file, mask_file, confounds_file, tr=tr, output_dir=outdir,
     n_dummy_trs=n_dummy_trs, add_derivates=add_derivates, low_pass=low_pass,
     high_pass=high_pass, fwhm=fwhm, atlas=atlas, locs=locs, add_compor=add_compor)
-        for fmri_file, confounds_file, outdir in dataset[[1,120]])
+        for fmri_file, confounds_file, outdir in dataset)
 
 #for fmri_file, confounds_file, outdir in dataset :
 #    preproc_timeseries(fmri_file, mask_file, confounds_file, tr=tr, output_dir=outdir,

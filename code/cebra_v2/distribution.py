@@ -29,7 +29,7 @@ class Distribution:
         Returns:
             The reference indices of shape ``(num_samples, )``.
         """
-        return torch.randint(self.T,size = (num_samples,))
+        return torch.randint(self.T - self.time_delta,size = (num_samples,))
 
     def sample_conditional(self, reference_idx: torch.Tensor, num_samples) -> torch.Tensor:
         """Return indices from the conditional distribution knowing a batch of reference indices

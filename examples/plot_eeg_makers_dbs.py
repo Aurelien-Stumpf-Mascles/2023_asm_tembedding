@@ -10,6 +10,8 @@ The goal here is to reproduce the results of the following paper:
 Deep brain stimulation of the thalamus restores signatures of consciousness
 in a nonhuman primate model, ScienceAdvances 2022.
 """
+import sys 
+sys.path.append('/neurospin/lbi/monkeyfmri/deepstim/workspace/2023_ASM_tembedding/gitproject/2023_asm_tembedding/')
 
 import os
 import glob

@@ -1,0 +1,10 @@
+
+#PBS -N Aurel_Test
+#PBS -q Nspin_long
+#PBS -l nodes=1:ppn=10
+#PBS -l mem=64gb
+#PBS -l walltime=10:00:00
+#PBS -j oe                      
+#PBS -o output49.out
+
+apptainer run --bind /neurospin /neurospin/lbi/monkeyfmri/deepstim/workspace/2023_ASM_tembedding/gitproject/2023_asm_tembedding/singularity/pbs_scripts/tembedding.sif precompute-dfc-dist 		/neurospin/lbi/monkeyfmri/deepstim/database/ANESTHETIC_database/derivatives/reference_kmeans/inputs/inputs.npy                 /neurospin/lbi/monkeyfmri/deepstim/database/ANESTHETIC_database/derivatives/reference_kmeans/inputs/metadata.tsv                 49                 /neurospin/lbi/monkeyfmri/deepstim/workspace/2023_ASM_tembedding/gitproject/2023_asm_tembedding/data/DistanceMatrices/all

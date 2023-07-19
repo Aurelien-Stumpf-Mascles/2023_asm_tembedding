@@ -148,9 +148,4 @@ def eeg_markers(epochs_file, outdir, basename, njobs=1):
     # Saving markers
     df = pd.DataFrame(
         X, columns=["-".join(item.split("/")[2:]) for item in markers.keys()])
-<<<<<<< HEAD
-    df.to_csv(os.path.join(outdir, f"{basename}_markers.tsv"), sep="\t",
-              index=False)        
-=======
     df.to_csv(outfile, sep="\t", index=False)        
->>>>>>> 9fe85c8baadeb73457c4cfb57bb0ca4910319f9a

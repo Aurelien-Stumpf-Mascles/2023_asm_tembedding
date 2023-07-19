@@ -1,0 +1,523 @@
+#! /usr/bin/env python3
+# -*- coding: utf-8 -*
+##########################################################################
+# NSAp - Copyright (C) CEA, 2020
+# Distributed under the terms of the CeCILL-B license, as published by
+# the CEA-CNRS-INRIA. Refer to the LICENSE file or to
+# http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.html
+# for details.
+##########################################################################
+
+# System import
+import os
+import json
+import glob
+import argparse
+import textwrap
+from pprint import pprint
+from datetime import datetime
+from collections import OrderedDict
+from argparse import RawTextHelpFormatter
+
+import numpy as np
+import scipy.stats as stats
+import hdf5storage
+import pandas as pd
+import matplotlib.pyplot as plt
+from statsmodels.stats.multitest import multipletests
+
+
+# Bredala import
+try:
+    import bredala
+    bredala.USE_PROFILER = False
+    #bredala.register("nicon.utils",
+    #                 names=["_fisher_zscore", "get_average_profile"])
+    bredala.register("nicon.static_connectivity",
+                     names=["connectivity"])
+except:
+    pass
+
+
+# Package import
+import nicon
+from nicon.utils import _fisher_zscore
+from nicon.utils import get_average_profile
+from nicon.static_connectivity import connectivity
+import nicon.plotting as plotting
+
+
+# Parameters to keep trace
+__hopla__ = ["runtime", "inputs", "outputs"]
+
+
+# Script documentation
+DOC = """
+Compute static connectivity analysis.
+
+The template labels must be constructed as follows:
+label_i(left) = label_i(right) + 1
+The label zero is the background.
+
+Command example:
+
+export WDIR=/neurospin/lbi/monkeyfmri/tmp/Static_RS_CIVM_R/def_static_CMMDPf_cort
+python3 nicon/scripts/nicon_static \
+    -V 2 \
+    -i '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*awake_bold*.mat' \
+       '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*stim_off*.mat' \
+       '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*stim_on_3v*.mat' \
+       '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*stim_on_5v*.mat' \
+       '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*stim_cont_on_3v*.mat' \
+       '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*stim_cont_on_5v*.mat' \
+    -n awake anesthesia 'CMT DBS 3V' 'CMT DBS 5V' 'VLT DBS 3V' 'VLT DBS 5V' \
+    -t $WDIR/*.xlsx \
+    -s GNW \
+    -a 'ABBREVIATIONS CIVM_R'\
+    -r CIVM_R_right \
+    -l CIVM_R_left \
+    -k /neurospin/lbi/monkeyfmri/images/Rhesus_macaque_CIVM_R_MNIspace/CIVM_R_labels_MNIspace_1iso.nii \
+    -o $WDIR \
+    -O ordered_display
+
+python3 nicon/scripts/nicon_static \
+    -V 2 \
+    -R R-VL R-MD-PF R-CM \
+    -i '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*awake_bold*.mat' \
+       '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*stim_off*.mat' \
+       '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*stim_on_3v*.mat' \
+       '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*stim_on_5v*.mat' \
+       '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*stim_cont_on_3v*.mat' \
+       '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*stim_cont_on_5v*.mat' \
+    -n awake anesthesia 'CMT DBS 3V' 'CMT DBS 5V' 'VLT DBS 3V' 'VLT DBS 5V' \
+    -t /neurospin/lbi/monkeyfmri/tmp/Static_RS_CIVM_R/List_GNWnodes_fromCIVM_R_labels.xlsx \
+    -s GNW \
+    -a 'ABBREVIATIONS CIVM_R'\
+    -r CIVM_R_right \
+    -l CIVM_R_left \
+    -k /neurospin/lbi/monkeyfmri/images/Rhesus_macaque_CIVM_R_MNIspace/CIVM_R_labels_MNIspace_1iso.nii \
+    -o /neurospin/lbi/monkeyfmri/tmp/Static_RS_CIVM_R/static_state_3 \
+    -S /neurospin/lbi/monkeyfmri/tmp/Static_RS_CIVM_R/dynamic/ordered_states_3.npy
+"""
+
+
+def is_directory(dirarg):
+    """ Type for argparse - checks that directory exists.
+    """
+    if not os.path.isdir(dirarg):
+        raise argparse.ArgumentError(
+            "The directory '{0}' does not exist!".format(dirarg))
+    return dirarg
+
+def is_file(filearg):
+    """ Type for argparse - checks that file exists but does not open.
+    """
+    if not os.path.isfile(filearg):
+        raise argparse.ArgumentError(
+            "The file '{0}' does not exist!".format(filearg))
+    return filearg
+
+def get_cmd_line_args():
+    """
+    Create a command line argument parser and return a dict mapping
+    <argument name> -> <argument value>.
+    """
+    parser = argparse.ArgumentParser(
+        prog="nicon_static",
+        description=textwrap.dedent(DOC),
+        formatter_class=RawTextHelpFormatter)
+
+    # Required arguments
+    required = parser.add_argument_group("required arguments")
+    required.add_argument(
+        "-i", "--imat",
+        required=True, metavar="<path>", nargs="+",
+        help="the input regexs (one for each condition) that point to the "
+             "extracted timeseries: see XX Matlab script.")
+    required.add_argument(
+        "-n", "--names",
+        required=True, metavar="<str>", nargs="+",
+        help="the names of the conditions.")
+    required.add_argument(
+        "-t", "--troi",
+        required=True, metavar="<path>", type=is_file,
+        help="a XLSX-like file that contains the template ROI descriptions.")
+    required.add_argument(
+        "-s", "--seedcol",
+        required=True, metavar="<str>",
+        help="the name of the column containing the seeds.")
+    required.add_argument(
+        "-a", "--abcol",
+        required=True, metavar="<str>",
+        help="the name of the column containing the template abreviations.")
+    required.add_argument(
+        "-r", "--rcol",
+        required=True, metavar="<str>",
+        help="the name of the column containing the right hemisphere label "
+             "indices.")
+    required.add_argument(
+        "-l", "--lcol",
+        required=True, metavar="<str>",
+        help="the name of the column containing the left hemisphere label "
+             "indices.")
+    required.add_argument(
+        "-k", "--atlas-labels",
+        required=True, metavar="<path>", type=is_file,
+        help="a Nifti file that contains the template labels descriptions: "
+             "must be in 1 iso MNI monkey space.")
+    required.add_argument(
+        "-o", "--outdir",
+        required=True, metavar="<path>", type=is_directory,
+        help="the directory where the generated data will be "
+             "saved.")
+
+    # Optional arguments
+    parser.add_argument(
+        "-V", "--verbose",
+        type=int, choices=[0, 1, 2], default=0,
+        help="increase the verbosity level: 0 silent, [1, 2] verbose.")
+    required.add_argument(
+        "-O", "--order",
+        metavar="<str>",
+        help="the name of the column containing the ordering display.")
+    parser.add_argument(
+        "-R", "--rm-abreviations",
+        nargs="*",
+        help="remove the specified ROI from the connectivity profiles only.")
+    parser.add_argument(
+        "-S", "--states",
+        metavar="<path>", type=is_file,
+        help="the dynamic states in a numpy file.")
+
+    # Create a dict of arguments to pass to the 'main' function
+    args = parser.parse_args()
+    kwargs = vars(args)
+    verbose = kwargs.pop("verbose")
+
+    return kwargs, verbose
+
+
+"""
+Parse the command line.
+"""
+inputs, verbose = get_cmd_line_args()
+runtime = {
+    "tool": "nicon_static",
+    "tool_version": nicon.__version__,
+    "timestamp": datetime.now().isoformat()}
+outputs = {}
+if verbose > 0:
+    print("[info] Starting dump ...")
+    print("[info] Runtime:")
+    pprint(runtime)
+    print("[info] Inputs:")
+    pprint(inputs)
+
+
+"""
+Compute static connectivity.
+"""
+images = [glob.glob(regex) for regex in inputs["imat"]]
+outputs["images"] = images
+if verbose > 0:
+    for regex, condition in zip(inputs["imat"], images):
+        print("[info] {0}: {1}.".format(regex, len(condition)))
+        print("\n".join(condition))
+atlas_meta = pd.read_excel(inputs["troi"])
+
+seeds = OrderedDict()
+rseeds = OrderedDict()
+order = {}
+for key in set(atlas_meta[inputs["seedcol"]]):
+    if not isinstance(key, str) or key == "":
+        continue
+    selection_df = atlas_meta[atlas_meta[inputs["seedcol"]] == key]
+    # label - 1 since the backgound 0 is not use during the connectivity map
+    # computation
+    seeds["L-" + key] = [
+        int(val) for val in set(selection_df[inputs["lcol"]].values - 1)]
+    rseeds["R-" + key] = [
+        int(val) for val in set(selection_df[inputs["rcol"]].values - 1)]
+    if inputs["order"] is not None:
+        _order = selection_df[inputs["order"]].values
+        assert all([elem == _order[0] for elem in _order]), key
+        order["L-" + key] = int(_order[0])
+        order["R-" + key] = int(_order[0])
+if len(order) > 0:
+    seeds = OrderedDict(sorted(seeds.items(), key=lambda x: order[x[0]]))
+    rseeds = OrderedDict(sorted(rseeds.items(), key=lambda x: order[x[0]]))
+seeds.update(rseeds)
+outputs["seeds"] = seeds
+if verbose > 1:
+    print("[info] Seeds:")
+    pprint(seeds)
+labels = OrderedDict()
+for colname, hemi in ((inputs["lcol"], "L-"), (inputs["rcol"], "R-")):
+    for label in set(atlas_meta[colname]):
+        # background
+        if label == 0:
+            continue
+        selection_df = atlas_meta[atlas_meta[colname] == label]
+        if label not in labels:
+            abreviations = set(selection_df[inputs["abcol"]].values)
+            labels[label] = (
+                hemi + "_".join([str(elem) for elem in abreviations]))
+outputs["labels"] = labels
+if verbose > 1:
+    print("[info] Labels:")
+    pprint(labels)
+
+conn_static = []
+conn_avg = {}
+conn = {}
+conn_flat = {}
+if inputs["states"] is None:
+    for name, condition in zip(inputs["names"], images):
+        timeseries = []
+        for path in condition:
+            print(path)
+            mat = hdf5storage.loadmat(path)["scans"]
+            timeseries.append(mat)
+        timeseries = np.asarray(timeseries)
+        conn_values, conn_static_mean = connectivity(
+            timeseries,
+            outdir=inputs["outdir"],
+            kind="correlation",
+            verbose=5)
+        #iu = np.triu_indices(conn_values.shape[-1], k=1)
+        #_conn_flat = [arr[iu] for arr in conn_values]
+        conn_flat[name] = _fisher_zscore(conn_values)
+        conn_values = conn_values.transpose(1, 2, 0)
+        conn_static_mean = _fisher_zscore(conn_static_mean)
+        _labels = [labels[key] for key in sorted(labels.keys())]
+        conn_static_mean += conn_static_mean.T
+        conn_static_mean /= 2.
+        #plotting.plot_network(
+        #    conn_static_mean, inputs["atlas_labels"], _labels,
+        #    inputs["outdir"], title="network_{0}".format(name), verbose=2)
+        for key in seeds.keys():
+            conn_avg = get_average_profile(
+                conn_static_mean, key, seeds, conn_avg)
+            conn = get_average_profile(
+                conn_values, key, seeds, conn, average=False)
+        conn_static.append(conn_static_mean)
+else:
+    conn_static = np.load(inputs["states"])
+    conn_static = _fisher_zscore(conn_static)
+    if verbose > 1:
+        print("[info] States:", conn_static.shape)
+    inputs["names"] = ["state{0}".format(idx + 1)
+                       for idx in range(len(conn_static))]
+    for name, conn_static_mean in zip(inputs["names"], conn_static):
+        _labels = [labels[key] for key in sorted(labels.keys())]
+        plotting.plot_network(
+            conn_static_mean, inputs["atlas_labels"], _labels,
+            inputs["outdir"], title="network_{0}".format(name), verbose=2)
+        for key in seeds.keys():
+            conn_avg = get_average_profile(
+                conn_static_mean, key, seeds, conn_avg)
+
+
+avg_zvals = {}
+data = [conn[key1].get(key2, None)
+        for key1 in seeds.keys() for key2 in seeds.keys()]
+print(data)
+for idx, key in enumerate(inputs["names"]):
+    zarr = conn_flat[key]
+    empty_profile = np.ones((zarr.shape[0], ))
+    zarr = [empty_profile if item is None else item[idx] for item in data]
+    zarr = np.asarray(zarr).T
+    zarr = zarr.reshape(-1, len(seeds), len(seeds))
+    pos = [_arr[np.where(_arr > 0)] for _arr in zarr]
+    neg = [np.abs(_arr[np.where(_arr < 0)]) for _arr in zarr]
+    ratio = [np.mean(num) / np.mean(den) for num, den in zip(neg, pos)]
+    pos = np.hstack(pos)
+    neg = np.hstack(neg)
+    avg_zvals[key] = [
+        np.mean(pos), stats.sem(pos), np.mean(neg), stats.sem(neg), 
+        np.mean(ratio), stats.sem(ratio)]
+df = pd.DataFrame.from_dict(avg_zvals)
+df.index = ["positive_mean", "positive_sem", "negative_mean", "negative_sem",
+            "ratio", "ratio_sem"]
+df = df.T
+fname = os.path.join(inputs["outdir"], "average_zscores.tsv")
+df.to_csv(fname, sep="\t")
+
+
+tstats = {}
+index = []
+for idx1 in range(len(inputs["names"])):
+    key1 = inputs["names"][idx1]
+    zarr = conn_flat[key1]
+    pos1 = [_arr[np.where(_arr > 0)] for _arr in zarr]
+    neg1 = [_arr[np.where(_arr < 0)] for _arr in zarr]
+    ratio1 = [np.mean(num) / np.mean(den) for num, den in zip(neg1, pos1)]
+    pos1 = np.hstack(pos1)
+    neg1 = np.hstack(neg1)
+    for idx2 in range(idx1 + 1, len(inputs["names"])):
+        key2 = inputs["names"][idx2]
+        index.append("{0}-{1}".format(key1, key2))
+        zarr = conn_flat[key2]
+        pos2 = [_arr[np.where(_arr > 0)] for _arr in zarr]
+        neg2 = [_arr[np.where(_arr < 0)] for _arr in zarr]
+        ratio2 = [np.mean(num) / np.mean(den) for num, den in zip(neg2, pos2)]
+        pos2 = np.hstack(pos2)
+        neg2 = np.hstack(neg2)
+        for sample1, sample2, name in ((pos1, pos2, "pos"),
+                                       (neg1, neg2, "neg"),
+                                       (ratio1, ratio2, "ratio")):
+            pvals = stats.ttest_ind(
+                sample1, sample2, axis=None, nan_policy="raise").pvalue
+            tstats.setdefault(name, []).append(pvals)
+df = pd.DataFrame.from_dict(tstats)
+df.index = index
+title = "T_pval_pos_neg_ratio"
+fname = os.path.join(inputs["outdir"], "{0}.tsv".format(title))
+df.to_csv(fname, sep="\t")
+
+
+data = [conn[key1].get(key2, None)
+        for key1 in seeds.keys() for key2 in seeds.keys()]
+for idx1 in range(len(inputs["names"])):
+    key1 = inputs["names"][idx1]
+    arr1 = conn_flat[key1]
+    empty_profile = np.ones((arr1.shape[0], ))
+    arr1 = [empty_profile if item is None else item[idx1] for item in data]
+    arr1 = np.asarray(arr1).T
+    arr1 = arr1.reshape(-1, len(seeds), len(seeds))
+    for idx2 in range(idx1 + 1, len(inputs["names"])):
+        key2 = inputs["names"][idx2]
+        arr2 = conn_flat[key2]
+        empty_profile = np.ones((arr2.shape[0], ))
+        arr2 = [empty_profile if item is None else item[idx2] for item in data]
+        arr2 = np.asarray(arr2).T
+        arr2 = arr2.reshape(-1, len(seeds), len(seeds))
+        pvals = stats.ttest_ind(arr1, arr2, axis=0, nan_policy="raise").pvalue
+        shape = pvals.shape
+        pvals[np.isnan(pvals)] = 0
+        _, pvals, _, _ = multipletests(
+            pvals.flatten(), alpha=0.001, method="fdr_bh")
+        pvals = pvals.reshape(shape)
+        df = pd.DataFrame(
+            data=pvals, index=seeds.keys(), columns=seeds.keys())
+        title = "T_pval_{0}-{1}".format(key1, key2)
+        fname = os.path.join(inputs["outdir"], "{0}.tsv".format(title))
+        df.to_csv(fname, sep="\t")
+        thr = 0.1
+        mask = None # (pvals > thr)
+        plotting.plot_array(df, vmin=0, vmax=0.1, title=title, mask=mask,
+                            cmap="jet", nonsym_cmap=True, auto=False)
+
+all_f_scores = []
+for key in conn_avg.keys():
+    conn_seed = conn_avg[key]
+    conn_values = conn[key]
+    if verbose > 1:
+        print("[info] Profile:", key)
+        pprint(conn_seed)
+    conn_values_arr = list(conn_values.values())
+    n_rois = len(conn_values_arr)
+    n_conditions = len(inputs["names"])
+    n_tests = n_rois * n_conditions
+    f_scores = {}
+    _all_f_scores = []
+    for idx, col_name in enumerate(inputs["names"]):
+        f_arr = np.zeros((n_rois, n_conditions))
+        for row, row_data in enumerate(conn_values_arr):
+            ref_data = row_data[idx]
+            for col, data in enumerate(row_data):
+                f_arr[row, col] = stats.f_oneway(ref_data, data).pvalue
+        f_arr[np.isnan(f_arr)] = 1.
+        f_scores[col_name] = f_arr
+        _all_f_scores.append(np.mean(f_arr, axis=0))
+    all_f_scores.append(np.asarray(_all_f_scores))
+    conn_arr = np.asarray(list(conn_seed.values()))
+    row_labels = conn_seed.keys()
+    sizes = [len(val) for val in row_labels]
+    row_labels = [val.rjust(max(sizes)) for val in row_labels]
+    df = pd.DataFrame(
+        data=conn_arr, index=row_labels, columns=inputs["names"])
+    if inputs["rm_abreviations"] is not None:
+        for abreviation in inputs["rm_abreviations"]:
+            abreviation = abreviation.rjust(max(sizes))
+            if abreviation in row_labels:
+                df = df.drop(abreviation.rjust(max(sizes)))
+    fname = os.path.join(inputs["outdir"], "{0}.tsv".format(
+        key.replace(os.sep, "_")))
+    df.to_csv(fname, sep="\t")
+    plotting.plot_array(
+        df, vmin=-0.6, vmax=0.6, title=key, square=False, auto=False)
+    for name, f_arr in f_scores.items():
+        thr = 0.1
+        # mask = (f_arr > thr)
+        mask = None
+        x_labels = ["{0}/{1}".format(name, label) for label in inputs["names"]]
+        shape = f_arr.shape
+        f_arr[np.isnan(f_arr)] = 0
+        _, f_arr, _, _ = multipletests(
+            f_arr.flatten(), alpha=1e-3, method="fdr_bh")
+        f_arr = f_arr.reshape(shape)
+        df = pd.DataFrame(
+            data=f_arr, index=row_labels, columns=x_labels)
+        title = "F_pval_{0}_{1}".format(name, key.replace(os.sep, "-"))
+        fname = os.path.join(inputs["outdir"], "{0}.tsv".format(title))
+        df.to_csv(fname, sep="\t")
+        plotting.plot_array(
+            df, vmin=0, vmax=0.1, title=title, square=False, auto=False,
+            mask=mask, cmap="jet", nonsym_cmap=True)
+all_f_scores = np.mean(np.asarray(all_f_scores), axis=0)
+df = pd.DataFrame(
+    data=all_f_scores, index=inputs["names"], columns=inputs["names"])
+fname = os.path.join(inputs["outdir"], "global_stat.tsv")
+df.to_csv(fname, sep="\t")
+
+
+empty_profile = np.ones((len(inputs["names"]), ))
+conn_avg_seeds = [conn_avg[key1].get(key2, empty_profile)
+                  for key1 in seeds.keys() for key2 in seeds.keys()]
+conn_avg_seeds = np.asarray(conn_avg_seeds)
+conn_avg_seeds = conn_avg_seeds.reshape(
+    (len(seeds), len(seeds), len(inputs["names"])))  
+for idx, title in enumerate(inputs["names"]):
+    title += "_seeds"
+    mat = conn_avg_seeds[..., idx]
+    df = pd.DataFrame(
+        data=mat, index=seeds.keys(), columns=seeds.keys())
+    df.to_csv(os.path.join(inputs["outdir"], "{0}.tsv".format(title)),
+              sep="\t")
+    plotting.plot_array(df, vmin=-0.2, vmax=0.2, title=title, auto=False)
+
+  
+for mat, title in zip(conn_static, inputs["names"]):
+    sortmat = np.concatenate((mat[::2], mat[1::2]), axis=0)
+    sortmat = np.concatenate((sortmat[:, ::2], sortmat[:, 1::2]), axis=1)
+    df = pd.DataFrame(
+        data=sortmat, index=labels.values(), columns=labels.values())
+    df.to_csv(os.path.join(inputs["outdir"], "{0}.tsv".format(title)),
+              sep="\t")
+    plotting.plot_array(df, vmin=-0.2, vmax=0.2, title=title)
+
+for fig in [plt.figure(idx) for idx in plt.get_fignums()]:
+    fig.tight_layout()
+    name = fig.axes[0].get_title().replace(os.sep, "_")
+    fname = os.path.join(inputs["outdir"], "{0}.png".format(name))
+    outputs[name] = fname
+    fig.savefig(fname)
+#plt.show()
+
+
+"""
+Save metainformation
+"""
+logdir = os.path.join(inputs["outdir"], "logs")
+if not os.path.isdir(logdir):
+    os.mkdir(logdir)
+for name, final_struct in [("inputs", inputs), ("outputs", outputs),
+                           ("runtime", runtime)]:
+    log_file = os.path.join(logdir, "nicon_static_{0}.json".format(name))
+    with open(log_file, "wt") as open_file:
+        json.dump(final_struct, open_file, sort_keys=True, check_circular=True,
+                  indent=4)
+if verbose > 1:
+    print("[info] Outputs:")
+    pprint(outputs)

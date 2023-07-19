@@ -1,0 +1,339 @@
+#! /usr/bin/env python3
+# -*- coding: utf-8 -*
+##########################################################################
+# NSAp - Copyright (C) CEA, 2020
+# Distributed under the terms of the CeCILL-B license, as published by
+# the CEA-CNRS-INRIA. Refer to the LICENSE file or to
+# http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.html
+# for details.
+##########################################################################
+
+
+# Imports
+import os
+import json
+import argparse
+import textwrap
+import hdf5storage
+import numpy as np
+from pprint import pprint
+from datetime import datetime
+from argparse import RawTextHelpFormatter
+
+# Bredala import
+try:
+    import bredala
+    bredala.USE_PROFILER = False
+    bredala.register("nicon.utils",
+                     names=["extract_signal"])
+except:
+    pass
+
+
+# Package import
+import nicon
+from nicon.utils import extract_signal
+
+# Parameters to keep trace
+__hopla__ = ["runtime", "inputs", "outputs"]
+
+
+# Script documentation
+DOC = """
+Extract timeseries.
+
+Command example:
+
+python3 nicon/scripts/nicon_spliter \
+    -V 2 \
+    -i /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/nori/2017/03/20170303/DBS/contact_CM_VP/sMNI_010.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/nori/2017/03/20170303/DBS/contact_CM_VP/sMNI_012.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/nori/2017/03/20170303/DBS/contact_CM_VP/sMNI_014.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/nori/2017/03/20170303/DBS/contact_CM_VP/sMNI_016.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/nori/2017/03/20170303/DBS/contact_CM_VP/sMNI_018.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/nori/2017/03/20170303/DBS/contact_CM_VP/sMNI_020.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/nori/2017/03/20170303/DBS/contact_CM_VP/sMNI_022.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/nori/2017/03/20170303/DBS/contact_CM_VP/sMNI_024.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/nori/2017/03/20170303/DBS/contact_CM_VP/sMNI_026.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/nori/2017/03/20170303/DBS/contact_CM_VP/sMNI_033.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/nori/2017/03/20170310/DBS/contact_CM_VP/sMNI_010.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/nori/2017/03/20170310/DBS/contact_CM_VP/sMNI_016.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/nori/2017/03/20170310/DBS/contact_CM_VP/sMNI_018.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/nori/2017/03/20170310/DBS/contact_CM_VP/sMNI_020.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/nori/2017/03/20170310/DBS/contact_CM_VP/sMNI_028.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/nori/2017/03/20170310/DBS/contact_CM_VP/sMNI_031.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/nori/2017/04/20170407/DBS/contact_CM_VP/sMNI_015.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/nori/2017/04/20170407/DBS/contact_CM_VP/sMNI_016.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/nori/2017/04/20170407/DBS/contact_CM_VP/sMNI_019.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/nori/2017/04/20170407/DBS/contact_CM_VP/sMNI_026.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/nori/2017/04/20170407/DBS/contact_CM_VP/sMNI_030.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/04/20160422/DBS/contact_CM_VP/sMNI_015.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/04/20160429/DBS/contact_CM_VP/sMNI_007.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/04/20160429/DBS/contact_CM_VP/sMNI_009.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/04/20160429/DBS/contact_CM_VP/sMNI_013.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/04/20160429/DBS/contact_CM_VP/sMNI_016.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/05/20160513/DBS/contact_CM_VP/sMNI_006.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/05/20160513/DBS/contact_CM_VP/sMNI_014.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/05/20160513/DBS/contact_CM_VP/sMNI_019.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/05/20160513/DBS/contact_CM_VP/sMNI_020.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/05/20160513/DBS/contact_CM_VP/sMNI_021.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/06/20160603/DBS/contact_CM_VP/sMNI_007.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/06/20160603/DBS/contact_CM_VP/sMNI_013.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/06/20160603/DBS/contact_CM_VP/sMNI_017.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/06/20160603/DBS/contact_CM_VP/sMNI_019.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/06/20160603/DBS/contact_CM_VP/sMNI_021.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/07/20160708/DBS/contact_CM_VP/sMNI_013.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/07/20160708/DBS/contact_CM_VP/sMNI_016.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/07/20160708/DBS/contact_CM_VP/sMNI_020.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/07/20160708/DBS/contact_CM_VP/sMNI_023.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/07/20160708/DBS/contact_CM_VP/sMNI_031.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/10/20161014/DBS/contact_CM_VP/sMNI_013.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/10/20161014/DBS/contact_CM_VP/sMNI_015.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/10/20161014/DBS/contact_CM_VP/sMNI_021.nii \
+        /neurospin/lbi/monkeyfmri/DICOM/3T_dicom/taro/2016/10/20161014/DBS/contact_CM_VP/sMNI_023.nii \
+    -n sub-nori_ses-20170303_run-010 \
+        sub-nori_ses-20170303_run-012 \
+        sub-nori_ses-20170303_run-014 \
+        sub-nori_ses-20170303_run-016 \
+        sub-nori_ses-20170303_run-018 \
+        sub-nori_ses-20170303_run-020 \
+        sub-nori_ses-20170303_run-022 \
+        sub-nori_ses-20170303_run-024 \
+        sub-nori_ses-20170303_run-026 \
+        sub-nori_ses-20170303_run-033 \
+        sub-nori_ses-20170310_run-010 \
+        sub-nori_ses-20170310_run-016 \
+        sub-nori_ses-20170310_run-018 \
+        sub-nori_ses-20170310_run-020 \
+        sub-nori_ses-20170310_run-028 \
+        sub-nori_ses-20170310_run-031 \
+        sub-nori_ses-20170407_run-015 \
+        sub-nori_ses-20170407_run-016 \
+        sub-nori_ses-20170407_run-019 \
+        sub-nori_ses-20170407_run-026 \
+        sub-nori_ses-20170407_run-030 \
+        sub-taro_ses-20160422_run-015 \
+        sub-taro_ses-20160429_run-007 \
+        sub-taro_ses-20160429_run-009 \
+        sub-taro_ses-20160429_run-013 \
+        sub-taro_ses-20160429_run-016 \
+        sub-taro_ses-20160513_run-006 \
+        sub-taro_ses-20160513_run-014 \
+        sub-taro_ses-20160513_run-019 \
+        sub-taro_ses-20160513_run-020 \
+        sub-taro_ses-20160513_run-021 \
+        sub-taro_ses-20160603_run-007 \
+        sub-taro_ses-20160603_run-013 \
+        sub-taro_ses-20160603_run-017 \
+        sub-taro_ses-20160603_run-019 \
+        sub-taro_ses-20160603_run-021 \
+        sub-taro_ses-20160708_run-013 \
+        sub-taro_ses-20160708_run-016 \
+        sub-taro_ses-20160708_run-020 \
+        sub-taro_ses-20160708_run-023 \
+        sub-taro_ses-20160708_run-031 \
+        sub-taro_ses-20161014_run-013 \
+        sub-taro_ses-20161014_run-015 \
+        sub-taro_ses-20161014_run-021 \
+        sub-taro_ses-20161014_run-023 \
+    -a /neurospin/lbi/monkeyfmri/DBS/python_results/rCIVM_R_labels_MNIspace_1iso.nii \
+    -t 1.25 \
+    -o /neurospin/lbi/monkeyfmri/DBS/python_results \
+    -L 10 50 105 160 215 270 55 110 165 220 275 75 130 185 240 295 97 152 207 262 317 \
+    -D 25 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 5 \
+    -N beforeDBS duringDBS duringDBS duringDBS duringDBS duringDBS justAfterDBS justAfterDBS justAfterDBS justAfterDBS justAfterDBS afterDBS afterDBS afterDBS afterDBS afterDBS longTimeAfterDBS longTimeAfterDBS longTimeAfterDBS longTimeAfterDBS longTimeAfterDBS
+
+python3 nicon/scripts/nicon_static \
+    -V 2 \
+    -i '/neurospin/lbi/monkeyfmri/DBS/python_results/*/sub-*acq-beforeDBS_part*fseries.mat' \
+       '/neurospin/lbi/monkeyfmri/DBS/python_results/*/sub-*acq-duringDBS_part*fseries.mat' \
+       '/neurospin/lbi/monkeyfmri/DBS/python_results/*/sub-*acq-justAfterDBS_part*fseries.mat' \
+       '/neurospin/lbi/monkeyfmri/DBS/python_results/*/sub-*acq-afterDBS_part*fseries.mat' \
+       '/neurospin/lbi/monkeyfmri/DBS/python_results/*/sub-*acq-longTimeAfterDBS_part*fseries.mat' \
+    -n beforeDBS duringDBS justAfterDBS afterDBS longTimeAfterDBS \
+    -t /neurospin/lbi/monkeyfmri/DBS/python_results/*.xlsx \
+    -s GNW \
+    -a 'ABBREVIATIONS CIVM_R'\
+    -r CIVM_R_right \
+    -l CIVM_R_left \
+    -k /neurospin/lbi/monkeyfmri/DBS/python_results/rCIVM_R_labels_MNIspace_1iso.nii \
+    -o /neurospin/lbi/monkeyfmri/DBS/python_results/static
+
+python3 nicon/scripts/nicon_static \
+    -V 2 \
+    -i '/neurospin/lbi/monkeyfmri/DBS/python_results/*/sub-*acq-beforeDBS_fseries.mat' \
+       '/neurospin/lbi/monkeyfmri/DBS/python_results/*/sub-*acq-duringDBS_fseries.mat' \
+       '/neurospin/lbi/monkeyfmri/DBS/python_results/*/sub-*acq-justAfterDBS_fseries.mat' \
+       '/neurospin/lbi/monkeyfmri/DBS/python_results/*/sub-*acq-afterDBS_fseries.mat' \
+       '/neurospin/lbi/monkeyfmri/DBS/python_results/*/sub-*acq-longTimeAfterDBS_fseries.mat' \
+    -n beforeDBS duringDBS justAfterDBS afterDBS longTimeAfterDBS \
+    -t /neurospin/lbi/monkeyfmri/DBS/python_results/*.xlsx \
+    -s GNW \
+    -a 'ABBREVIATIONS CIVM_R'\
+    -r CIVM_R_right \
+    -l CIVM_R_left \
+    -k /neurospin/lbi/monkeyfmri/DBS/python_results/rCIVM_R_labels_MNIspace_1iso.nii \
+    -o /neurospin/lbi/monkeyfmri/DBS/python_results/static_concat
+"""
+
+
+def is_directory(dirarg):
+    """ Type for argparse - checks that directory exists.
+    """
+    if not os.path.isdir(dirarg):
+        raise argparse.ArgumentError(
+            "The directory '{0}' does not exist!".format(dirarg))
+    return dirarg
+
+def is_file(filearg):
+    """ Type for argparse - checks that file exists but does not open.
+    """
+    if not os.path.isfile(filearg):
+        raise argparse.ArgumentError(
+            "The file '{0}' does not exist!".format(filearg))
+    return filearg
+
+def get_cmd_line_args():
+    """
+    Create a command line argument parser and return a dict mapping
+    <argument name> -> <argument value>.
+    """
+    parser = argparse.ArgumentParser(
+        prog="nicon_spliter",
+        description=textwrap.dedent(DOC),
+        formatter_class=RawTextHelpFormatter)
+
+    # Required arguments
+    required = parser.add_argument_group("required arguments")
+    required.add_argument(
+        "-i", "--inii",
+        required=True, metavar="<path>", nargs="+",
+        help="the input regexs (one for each condition) that point to the "
+             "Nifti timeseries.")
+    required.add_argument(
+        "-n", "--names",
+        required=True, metavar="<str>", nargs="+",
+        help="the names of the conditions.")
+    required.add_argument(
+        "-a", "--atlas",
+        required=True, metavar="<path>", type=is_file,
+        help="the path to the Nifti image that contains the ROIs.")
+    required.add_argument(
+        "-t", "--tr",
+        required=True, type=float,
+        help="the repetition time.")
+    required.add_argument(
+        "-o", "--outdir",
+        required=True, metavar="<path>", type=is_directory,
+        help="the directory where the generated data will be "
+             "saved.")
+
+    # Optional arguments
+    parser.add_argument(
+        "-V", "--verbose",
+        type=int, choices=[0, 1, 2], default=0,
+        help="increase the verbosity level: 0 silent, [1, 2] verbose.")
+    parser.add_argument(
+        "-L", "--locations",
+        type=int, nargs="+",
+        help="The locations in number of TR where to split the timeserie.")
+    parser.add_argument(
+        "-D", "--durations",
+        type=int, nargs="+",
+        help="The durations in number of TR.")
+    parser.add_argument(
+        "-N", "--location-names",
+        nargs="+",
+        help="The names associated with each location.") 
+
+    # Create a dict of arguments to pass to the 'main' function
+    args = parser.parse_args()
+    kwargs = vars(args)
+    verbose = kwargs.pop("verbose")
+
+    return kwargs, verbose
+
+
+"""
+Parse the command line.
+"""
+inputs, verbose = get_cmd_line_args()
+runtime = {
+    "tool": "nicon_spliter",
+    "tool_version": nicon.__version__,
+    "timestamp": datetime.now().isoformat()}
+outputs = {}
+if verbose > 0:
+    print("[info] Starting dump ...")
+    print("[info] Runtime:")
+    pprint(runtime)
+    print("[info] Inputs:")
+    pprint(inputs)
+
+
+"""
+Extract timeseries using template.
+"""
+timeseries = extract_signal(
+    inputs["inii"],
+    inputs["atlas"],
+    inputs["outdir"],
+    inputs["tr"],
+    low_pass=None,
+    high_pass=None,
+    smoothing_fwhm=None,
+    masker_type="label",
+    confounds=None,
+    compcor=False,
+    verbose=5)
+if verbose > 0:
+    print("Timeseries: {0}.".format(timeseries.shape))
+for name, arr in zip(inputs["names"], timeseries):
+    mat = {"scans": arr}
+    outdir = os.path.join(inputs["outdir"], name)
+    if not os.path.isdir(outdir):
+        os.mkdir(outdir)
+    fname = os.path.join(outdir, "{0}_fseries.mat".format(name))
+    outputs[name] = [fname]
+    outputs[name + "_meta"] = [arr.shape]
+    hdf5storage.savemat(fname, mat)
+    if inputs["locations"] is not None:
+        parts = {}
+        assert len(inputs["locations"]) == len(inputs["durations"])
+        assert len(inputs["locations"]) == len(inputs["location_names"])
+        for start, size, dtype in zip(inputs["locations"], inputs["durations"],
+                                      inputs["location_names"]):
+            part_arr = arr[start: start + size]
+            parts.setdefault(dtype, []).append(part_arr)
+            part_mat = {"scans": part_arr}
+            fname = os.path.join(
+                outdir, "{0}_acq-{1}_part-{2}_fseries.mat".format(
+                    name, dtype, start))
+            outputs[name].append(fname)
+            outputs[name + "_meta"].append(part_arr.shape)
+            hdf5storage.savemat(fname, part_mat)
+        for dtype, parts_arr in parts.items():
+            part_arr = np.concatenate(parts_arr)          
+            part_mat = {"scans": part_arr}
+            fname = os.path.join(
+                outdir, "{0}_acq-{1}_fseries.mat".format(name, dtype))
+            outputs[name].append(fname)
+            outputs[name + "_meta"].append(part_arr.shape)
+            hdf5storage.savemat(fname, part_mat)
+
+
+"""
+Save metainformation
+"""
+logdir = os.path.join(inputs["outdir"], "logs")
+if not os.path.isdir(logdir):
+    os.mkdir(logdir)
+for name, final_struct in [("inputs", inputs), ("outputs", outputs),
+                           ("runtime", runtime)]:
+    log_file = os.path.join(logdir, "nicon_static_{0}.json".format(name))
+    with open(log_file, "wt") as open_file:
+        json.dump(final_struct, open_file, sort_keys=True, check_circular=True,
+                  indent=4)
+if verbose > 1:
+    print("[info] Outputs:")
+    pprint(outputs)

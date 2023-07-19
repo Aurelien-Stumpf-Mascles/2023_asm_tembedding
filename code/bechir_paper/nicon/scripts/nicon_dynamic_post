@@ -1,0 +1,404 @@
+#! /usr/bin/env python3
+# -*- coding: utf-8 -*
+##########################################################################
+# NSAp - Copyright (C) CEA, 2020
+# Distributed under the terms of the CeCILL-B license, as published by
+# the CEA-CNRS-INRIA. Refer to the LICENSE file or to
+# http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.html
+# for details.
+##########################################################################
+
+# System import
+import os
+import json
+import glob
+import argparse
+import textwrap
+import multiprocessing
+from pprint import pprint
+from datetime import datetime
+from collections import OrderedDict
+from argparse import RawTextHelpFormatter
+
+import numpy as np
+import hdf5storage
+import pandas as pd
+from matplotlib import gridspec
+import matplotlib.pyplot as plt
+
+
+# Bredala import
+try:
+    import bredala
+    bredala.USE_PROFILER = False
+    bredala.register("nicon.utils",
+                     names=["fisher_zscore", "similarity"])
+except:
+    pass
+
+
+# Package import
+import nicon
+from nicon.utils import fisher_zscore
+from nicon.utils import similarity
+import nicon.plotting as plotting
+
+
+# Parameters to keep trace
+__hopla__ = ["runtime", "inputs", "outputs"]
+
+
+# Script documentation
+DOC = """
+Compute post dynamic connectivity analysis.
+
+The template labels must be constructed as follows:
+label_i(left) = label_i(right) + 1
+The label zero is the background.
+
+Command example:
+
+python3 nicon/scripts/nicon_dynamic_post \
+    -V 2 \
+    -i '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*awake_bold*.mat' \
+       '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*stim_off*.mat' \
+       '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*stim_on_3v*.mat' \
+       '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*stim_on_5v*.mat' \
+       '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*stim_cont_on_3v*.mat' \
+       '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*stim_cont_on_5v*.mat' \
+    -n awake anesthesia 'CMT DBS 3V' 'CMT DBS 5V' 'VLT DBS 3V' 'VLT DBS 5V' \
+    -t /neurospin/lbi/monkeyfmri/tmp/Static_RS_CIVM_R/List_GNWnodes_fromCIVM_R_labels.xlsx \
+    -s GNW \
+    -a 'ABBREVIATIONS CIVM_R'\
+    -r CIVM_R_right \
+    -l CIVM_R_left \
+    -c 3 4 5 6 7 8 \
+    -d /neurospin/lbi/monkeyfmri/images/Rhesus_macaque_CIVM_R_MNIspace/SC_CIVM.txt \
+    -o /neurospin/lbi/monkeyfmri/tmp/Static_RS_CIVM_R/dynamic \
+    -D
+"""
+
+
+def is_directory(dirarg):
+    """ Type for argparse - checks that directory exists.
+    """
+    if not os.path.isdir(dirarg):
+        raise argparse.ArgumentError(
+            "The directory '{0}' does not exist!".format(dirarg))
+    return dirarg
+
+def is_file(filearg):
+    """ Type for argparse - checks that file exists but does not open.
+    """
+    if not os.path.isfile(filearg):
+        raise argparse.ArgumentError(
+            "The file '{0}' does not exist!".format(filearg))
+    return filearg
+
+def get_cmd_line_args():
+    """
+    Create a command line argument parser and return a dict mapping
+    <argument name> -> <argument value>.
+    """
+    parser = argparse.ArgumentParser(
+        prog="nicon_dynamic_post",
+        description=textwrap.dedent(DOC),
+        formatter_class=RawTextHelpFormatter)
+
+    # Required arguments
+    required = parser.add_argument_group("required arguments")
+    required.add_argument(
+        "-i", "--imat",
+        required=True, metavar="<path>", nargs="+",
+        help="the input regexs (one for each condition) that point to the "
+             "extracted timeseries: see XX Matlab script.")
+    required.add_argument(
+        "-n", "--names",
+        required=True, metavar="<str>", nargs="+",
+        help="the names of the conditions.")
+    required.add_argument(
+        "-t", "--troi",
+        required=True, metavar="<path>", type=is_file,
+        help="a XLSX-like file that contains the template ROI descriptions.")
+    required.add_argument(
+        "-s", "--seedcol",
+        required=True, metavar="<str>",
+        help="the name of the column containing the seeds.")
+    required.add_argument(
+        "-a", "--abcol",
+        required=True, metavar="<str>",
+        help="the name of the column containing the template abreviations.")
+    required.add_argument(
+        "-r", "--rcol",
+        required=True, metavar="<str>",
+        help="the name of the column containing the right hemisphere label "
+             "indices.")
+    required.add_argument(
+        "-l", "--lcol",
+        required=True, metavar="<str>",
+        help="the name of the column containing the left hemisphere label "
+             "indices.")
+    required.add_argument(
+        "-c", "--states",
+        required=True, type=int, nargs="+",
+        help="the number of brain states.")
+    required.add_argument(
+        "-d", "--structcon",
+        required=True, metavar="<path>", type=is_file,
+        help="the structural connectivity map in a text file: assume data are "
+             "provided in the same order as the template.")
+    required.add_argument(
+        "-o", "--outdir",
+        required=True, metavar="<path>", type=is_directory,
+        help="the directory where the generated data will be "
+             "saved.")
+
+    # Optional arguments
+    parser.add_argument(
+        "-V", "--verbose",
+        type=int, choices=[0, 1, 2], default=0,
+        help="increase the verbosity level: 0 silent, [1, 2] verbose.")
+    parser.add_argument(
+        "-D", "--dendogram",
+        action="store_true", default=False,
+        help="choose the best number of clusters using dendograms.")
+
+    # Create a dict of arguments to pass to the 'main' function
+    args = parser.parse_args()
+    kwargs = vars(args)
+    verbose = kwargs.pop("verbose")
+
+    return kwargs, verbose
+
+
+"""
+Parse the command line.
+"""
+inputs, verbose = get_cmd_line_args()
+runtime = {
+    "tool": "nicon_dynamic_post",
+    "tool_version": nicon.__version__,
+    "timestamp": datetime.now().isoformat()}
+outputs = {}
+if verbose > 0:
+    print("[info] Starting dump ...")
+    print("[info] Runtime:")
+    pprint(runtime)
+    print("[info] Inputs:")
+    pprint(inputs)
+
+
+"""
+Compute dynamic connectivity post.
+"""
+images = [glob.glob(regex) for regex in inputs["imat"]]
+outputs["images"] = images
+njobs = multiprocessing.cpu_count() - 1
+if verbose > 0:
+    for regex, condition in zip(inputs["imat"], images):
+        print("[info] {0}: {1}.".format(regex, len(condition)))
+atlas_meta = pd.read_excel(inputs["troi"])
+
+seeds = OrderedDict()
+rseeds = OrderedDict()
+for key in set(atlas_meta[inputs["seedcol"]]):
+    if not isinstance(key, str) or key == "":
+        continue
+    selection_df = atlas_meta[atlas_meta[inputs["seedcol"]] == key]
+    # label - 1 since the backgound 0 is not use during the connectivity map
+    # computation
+    seeds["L-" + key] = [
+        int(val) for val in set(selection_df[inputs["lcol"]].values - 1)]
+    rseeds["R-" + key] = [
+        int(val) for val in set(selection_df[inputs["rcol"]].values - 1)]
+seeds.update(rseeds)
+outputs["seeds"] = seeds
+if verbose > 1:
+    print("[info] Seeds:")
+    pprint(seeds)
+labels = OrderedDict()
+for colname, hemi in ((inputs["lcol"], "L-"), (inputs["rcol"], "R-")):
+    for label in set(atlas_meta[colname]):
+        # background
+        if label == 0:
+            continue
+        selection_df = atlas_meta[atlas_meta[colname] == label]
+        if label not in labels:
+            abreviations = set(selection_df[inputs["abcol"]].values)
+            labels[label] = (
+                hemi + "_".join([str(elem) for elem in abreviations]))
+outputs["labels"] = labels
+if verbose > 1:
+    print("[info] Labels:")
+    pprint(labels)
+
+structural = np.loadtxt(inputs["structcon"])
+structural = np.expand_dims(structural, axis=0)
+if verbose > 0:
+    print("[info] Structural connectivity:", structural.shape)
+statesfiles = glob.glob(os.path.join(inputs["outdir"], "states_*.npy"))
+labelsfiles = glob.glob(os.path.join(inputs["outdir"], "win_labels_*.npy"))
+data = {}
+for path in statesfiles + labelsfiles:
+    name, n_states = os.path.basename(path).split(".")[0].rsplit("_", 1)
+    n_states = int(n_states)
+    if n_states not in data:
+        data[n_states] = {}
+    data[n_states][name] = np.load(path)
+
+if inputs["dendogram"]:
+    conn = np.load(os.path.join(inputs["outdir"], "connectivity.npy"))
+    if verbose > 1:
+        print("[info] Connectivity: ", conn.shape)
+    conn = fisher_zscore(
+        conn, outdir=inputs["outdir"], cache=True, verbose=2)
+    n_subjects, n_windows, n_rois = conn.shape[:-1]
+    conn_mix = conn.reshape(-1, n_rois, n_rois)
+    iu = np.triu_indices(n_rois, k=1)
+    conn_flat = np.asarray([arr[iu] for arr in conn_mix])
+    fig = plt.figure()
+    row, col = divmod(len(data), 3)
+    if col > 0:
+        row += 1
+    gs = gridspec.GridSpec(row, 3, wspace=0.2, hspace=0.2)
+    cnt = 0
+    for n_states, state_item in data.items():
+        states = state_item["states"]
+        win_labels = state_item["win_labels"]
+        if verbose > 0:
+            print("[info] States:", states.shape)
+            print("[info] Windows labels:", win_labels.shape)
+        plotting.plot_silhouette(
+            n_clusters=n_states,
+            labels=win_labels,
+            data=conn_flat,
+            outdir=inputs["outdir"],
+            figure=fig,
+            subplot_spec=gs[cnt],
+            verbose=2)
+        cnt += 1
+
+for n_states, state_item in data.items():
+
+    states = state_item["states"]
+    if verbose > 0:
+        print("[info] States:", states.shape)
+    states = np.concatenate((states, structural), axis=0)
+    similarity_matrix = similarity(states)
+    if verbose > 0:
+        print("[info] Similarity:", similarity_matrix.shape)
+    state_labels = ["state{0}".format(idx) for idx in range(1, n_states + 1)]
+    state_labels += ["REF"]
+    df = pd.DataFrame(
+        data=similarity_matrix, index=state_labels, columns=state_labels)
+    plotting.plot_array(df, vmin=-1, vmax=1,
+                        title="similarity_{0}".format(n_states))
+    structural_similarities = similarity_matrix[:-1, n_states]
+    structural_order = np.argsort(structural_similarities)
+    if verbose > 0:
+        print("[info] Structural order: ", structural_order)
+    outputs["structural_order_{0}".format(n_states)] = structural_order.tolist()
+
+    fig = plt.figure()
+    gs = gridspec.GridSpec(2, n_states + 1, wspace=0.1, hspace=0.1)
+    for cnt, state in enumerate(states):
+        if cnt == 0:
+            title = "ordered_states_{0}".format(n_states)
+        else:
+            title = state_labels[cnt]
+        df = pd.DataFrame(
+            data=state, index=labels.values(), columns=labels.values())
+        plotting.plot_array(
+            df, vmin=-1, vmax=1, cbar=False, title=title,
+            figure=fig, subplot_spec=gs[cnt])
+    ordered_states = [states[idx] for idx in structural_order] + [states[-1]]
+    name = "ordered_states_{0}".format(n_states)
+    fname = os.path.join(inputs["outdir"], "{0}.npy".format(name))
+    np.save(fname, np.asarray(ordered_states[:-1]))
+    for cnt, state in enumerate(ordered_states):
+        if cnt == (len(ordered_states) - 1):
+            title = "REF"
+        else:
+            title = state_labels[structural_order[cnt]]
+        df = pd.DataFrame(
+            data=state, index=labels.values(), columns=labels.values())
+        plotting.plot_array(
+            df, vmin=-1, vmax=1, cbar=False, title=title,
+            figure=fig, subplot_spec=gs[cnt + len(states)]) 
+    #plotting.plot_mosaic(
+    #    data=states,
+    #    names=title,
+    #    figure=fig,
+    #    subplot_spec=gs[0])
+    #plotting.plot_mosaic(
+    #    data=[states[idx] for idx in structural_order] + [states[-1]],
+    #    names=" ".join(
+    #        [state_labels[idx] for idx in structural_order] + ["REF"]),
+    #    figure=fig,
+    #    subplot_spec=gs[1])
+
+    win_labels_split = []
+    win_labels = state_item["win_labels"]
+    offset = 0
+    for condition in images:
+        if verbose > 1:
+            print("[info] Spliting conditions: ", len(condition), offset)
+        win_labels_split.append(win_labels[offset: offset + len(condition)])
+        offset += len(condition)
+
+    x = np.arange(n_states)
+    width = 0.8 / len(images)
+    hist_arr = np.zeros((n_states, len(win_labels_split)), dtype=float)
+    for idx1 in range(n_states):
+        sorted_indx = structural_order[idx1]
+        for idx2 in range(len(win_labels_split)):
+            hist_arr[idx1, idx2] = win_labels_split[idx2].flatten().tolist(
+                ).count(sorted_indx)
+    for idx2, run_labels in enumerate(win_labels_split):
+        nb_runs = len(run_labels)
+        win_size = len(run_labels[0])
+        if verbose > 1:
+            print("[info] Spliting conditions: ", nb_runs, win_size)
+            print(hist_arr[:, idx2])
+        hist_arr[:, idx2] = hist_arr[:, idx2] / (nb_runs * win_size)
+        if verbose > 1:
+            print(hist_arr[:, idx2])
+
+    fig, ax = plt.subplots()
+    nb_rect = hist_arr.shape[1]
+    for idx in range(nb_rect):
+        ax.bar(x - width * idx, hist_arr[:, idx], width,
+               label=inputs["names"][idx])
+    for xlimit in x:
+        ax.axvline(x=(xlimit + width / 2. + 0.1), color="k", linestyle="-.",
+                   linewidth=0.2)
+    ax.set_ylabel("Scores")
+    ax.set_title("States repartition")
+    ax.set_xticks(x - width * (nb_rect - 1) / 2.)
+    ax.set_xticklabels(state_labels[:-1], rotation=45)
+    ax.legend()
+    ax.set_title("conditions_states_histogram_{0}".format(n_states))
+
+for fig in [plt.figure(idx) for idx in plt.get_fignums()]:
+    fig.tight_layout()
+    name = fig.axes[0].get_title().replace(os.sep, "_")
+    fname = os.path.join(inputs["outdir"], "{0}.png".format(name))
+    outputs[name] = fname
+    fig.savefig(fname)
+
+
+"""
+Save metainformation
+"""
+logdir = os.path.join(inputs["outdir"], "logs")
+if not os.path.isdir(logdir):
+    os.mkdir(logdir)
+for name, final_struct in [("inputs", inputs), ("outputs", outputs),
+                           ("runtime", runtime)]:
+    log_file = os.path.join(logdir, "nicon_dynamic_post_{0}.json".format(name))
+    with open(log_file, "wt") as open_file:
+        json.dump(final_struct, open_file, sort_keys=True, check_circular=True,
+                  indent=4)
+if verbose > 1:
+    print("[info] Outputs:")
+    pprint(outputs)

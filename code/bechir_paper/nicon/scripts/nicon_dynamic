@@ -1,0 +1,334 @@
+#! /usr/bin/env python3
+# -*- coding: utf-8 -*
+##########################################################################
+# NSAp - Copyright (C) CEA, 2020
+# Distributed under the terms of the CeCILL-B license, as published by
+# the CEA-CNRS-INRIA. Refer to the LICENSE file or to
+# http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.html
+# for details.
+##########################################################################
+
+# System import
+import os
+import json
+import glob
+import argparse
+import textwrap
+import multiprocessing
+from pprint import pprint
+from datetime import datetime
+from collections import OrderedDict
+from argparse import RawTextHelpFormatter
+
+import numpy as np
+import hdf5storage
+import pandas as pd
+import matplotlib.pyplot as plt
+
+
+# Bredala import
+try:
+    import bredala
+    bredala.USE_PROFILER = False
+    bredala.register("nicon.utils",
+                     names=["fisher_zscore", "get_average_profile"])
+    bredala.register("nicon.static_connectivity",
+                     names=["connectivity"])
+    bredala.register("nicon.dynamic_connectivity",
+                     names=["sliding_window", "cluster_states"])
+except:
+    pass
+
+
+# Package import
+import nicon
+from nicon.utils import fisher_zscore
+from nicon.utils import get_average_profile
+from nicon.static_connectivity import connectivity
+from nicon.dynamic_connectivity import sliding_window
+from nicon.dynamic_connectivity import cluster_states
+import nicon.plotting as plotting
+
+
+# Parameters to keep trace
+__hopla__ = ["runtime", "inputs", "outputs"]
+
+
+# Script documentation
+DOC = """
+Compute dynamic connectivity analysis.
+
+The template labels must be constructed as follows:
+label_i(left) = label_i(right) + 1
+The label zero is the background.
+
+Command example:
+
+python3 nicon/scripts/nicon_dynamic \
+    -V 2 \
+    -i '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*awake_bold*.mat' \
+       '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*stim_off*.mat' \
+       '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*stim_on_3v*.mat' \
+       '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*stim_on_5v*.mat' \
+       '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*stim_cont_on_3v*.mat' \
+       '/neurospin/lbi/monkeyfmri/resting_state/JS_JT_results/timeseries_CIVM_R/timeseries_*DBS*stim_cont_on_5v*.mat' \
+    -n awake anesthesia 'CMT DBS 3V' 'CMT DBS 5V' 'VLT DBS 3V' 'VLT DBS 5V' \
+    -t /neurospin/lbi/monkeyfmri/tmp/Static_RS_CIVM_R/List_GNWnodes_fromCIVM_R_labels.xlsx \
+    -s GNW \
+    -a 'ABBREVIATIONS CIVM_R'\
+    -r CIVM_R_right \
+    -l CIVM_R_left \
+    -b 1.25 \
+    -c 3 4 5 6 7 8 \
+    -o /neurospin/lbi/monkeyfmri/tmp/Static_RS_CIVM_R/dynamic
+"""
+
+
+def is_directory(dirarg):
+    """ Type for argparse - checks that directory exists.
+    """
+    if not os.path.isdir(dirarg):
+        raise argparse.ArgumentError(
+            "The directory '{0}' does not exist!".format(dirarg))
+    return dirarg
+
+def is_file(filearg):
+    """ Type for argparse - checks that file exists but does not open.
+    """
+    if not os.path.isfile(filearg):
+        raise argparse.ArgumentError(
+            "The file '{0}' does not exist!".format(filearg))
+    return filearg
+
+def get_cmd_line_args():
+    """
+    Create a command line argument parser and return a dict mapping
+    <argument name> -> <argument value>.
+    """
+    parser = argparse.ArgumentParser(
+        prog="nicon_dynamic",
+        description=textwrap.dedent(DOC),
+        formatter_class=RawTextHelpFormatter)
+
+    # Required arguments
+    required = parser.add_argument_group("required arguments")
+    required.add_argument(
+        "-i", "--imat",
+        required=True, metavar="<path>", nargs="+",
+        help="the input regexs (one for each condition) that point to the "
+             "extracted timeseries: see XX Matlab script.")
+    required.add_argument(
+        "-n", "--names",
+        required=True, metavar="<str>", nargs="+",
+        help="the names of the conditions.")
+    required.add_argument(
+        "-t", "--troi",
+        required=True, metavar="<path>", type=is_file,
+        help="a XLSX-like file that contains the template ROI descriptions.")
+    required.add_argument(
+        "-s", "--seedcol",
+        required=True, metavar="<str>",
+        help="the name of the column containing the seeds.")
+    required.add_argument(
+        "-a", "--abcol",
+        required=True, metavar="<str>",
+        help="the name of the column containing the template abreviations.")
+    required.add_argument(
+        "-r", "--rcol",
+        required=True, metavar="<str>",
+        help="the name of the column containing the right hemisphere label "
+             "indices.")
+    required.add_argument(
+        "-l", "--lcol",
+        required=True, metavar="<str>",
+        help="the name of the column containing the left hemisphere label "
+             "indices.")
+    required.add_argument(
+        "-b", "--tr",
+        required=True, type=float,
+        help="the repetition time is sec.")
+    required.add_argument(
+        "-c", "--states",
+        required=True, type=int, nargs="+",
+        help="the number of brain states.")
+    required.add_argument(
+        "-o", "--outdir",
+        required=True, metavar="<path>", type=is_directory,
+        help="the directory where the generated data will be "
+             "saved.")
+
+    # Optional arguments
+    parser.add_argument(
+        "-V", "--verbose",
+        type=int, choices=[0, 1, 2], default=0,
+        help="increase the verbosity level: 0 silent, [1, 2] verbose.")
+    parser.add_argument(
+        "-W", "--win",
+        type=int, default=35,
+        help="the windows size in TR to split the functional timeserie.")
+    parser.add_argument(
+        "-S", "--sliding-step",
+        type=int, default=1,
+        help="the sliding step TR to split the functional timeserie.")
+
+    # Create a dict of arguments to pass to the 'main' function
+    args = parser.parse_args()
+    kwargs = vars(args)
+    verbose = kwargs.pop("verbose")
+
+    return kwargs, verbose
+
+
+"""
+Parse the command line.
+"""
+inputs, verbose = get_cmd_line_args()
+runtime = {
+    "tool": "nicon_dynamic",
+    "tool_version": nicon.__version__,
+    "timestamp": datetime.now().isoformat()}
+outputs = {}
+if verbose > 0:
+    print("[info] Starting dump ...")
+    print("[info] Runtime:")
+    pprint(runtime)
+    print("[info] Inputs:")
+    pprint(inputs)
+
+
+"""
+Compute dynamic connectivity.
+"""
+images = [glob.glob(regex) for regex in inputs["imat"]]
+outputs["images"] = images
+njobs = multiprocessing.cpu_count() - 1
+if verbose > 0:
+    for regex, condition in zip(inputs["imat"], images):
+        print("[info] {0}: {1}.".format(regex, len(condition)))
+atlas_meta = pd.read_excel(inputs["troi"])
+
+seeds = OrderedDict()
+rseeds = OrderedDict()
+for key in set(atlas_meta[inputs["seedcol"]]):
+    if not isinstance(key, str) or key == "":
+        continue
+    selection_df = atlas_meta[atlas_meta[inputs["seedcol"]] == key]
+    # label - 1 since the backgound 0 is not use during the connectivity map
+    # computation
+    seeds["L-" + key] = [
+        int(val) for val in set(selection_df[inputs["lcol"]].values - 1)]
+    rseeds["R-" + key] = [
+        int(val) for val in set(selection_df[inputs["rcol"]].values - 1)]
+seeds.update(rseeds)
+outputs["seeds"] = seeds
+if verbose > 1:
+    print("[info] Seeds:")
+    pprint(seeds)
+labels = OrderedDict()
+for colname, hemi in ((inputs["lcol"], "L-"), (inputs["rcol"], "R-")):
+    for label in set(atlas_meta[colname]):
+        # background
+        if label == 0:
+            continue
+        selection_df = atlas_meta[atlas_meta[colname] == label]
+        if label not in labels:
+            abreviations = set(selection_df[inputs["abcol"]].values)
+            labels[label] = (
+                hemi + "_".join([str(elem) for elem in abreviations]))
+outputs["labels"] = labels
+if verbose > 1:
+    print("[info] Labels:")
+    pprint(labels)
+
+timeseries_split = []
+for condition in images:
+    timeseries = []
+    for path in condition:
+        mat = hdf5storage.loadmat(path)["scans"]
+        timeseries.append(mat)
+    timeseries = np.asarray(timeseries)
+    timeseries_split.append(sliding_window(
+        timeseries,
+        win_size=inputs["win"],
+        outdir=inputs["outdir"],
+        sliding_step=inputs["sliding_step"],
+        verbose=5))
+timeseries_split = np.concatenate(tuple(timeseries_split), axis=0)
+timeseries_shape = timeseries_split.shape
+if verbose > 0:
+    print("[info] Timeseries: {0}.".format(timeseries_shape))
+
+timeseries_split = timeseries_split.reshape(-1, *timeseries_shape[-2:])
+if verbose > 0:
+    print("[info] Timeseries reshape: {0}.".format(timeseries_split.shape))
+conn_static, _ = connectivity(
+    timeseries_split,
+    outdir=inputs["outdir"],
+    kind="correlation",
+    njobs=njobs,
+    verbose=200)
+conn_shape = conn_static.shape
+if verbose > 0:
+    print("[info] Windows connectivity: {0}.".format(conn_shape))
+
+conn_static = conn_static.reshape(*timeseries_shape[:-2], *conn_shape[-2:])
+if verbose > 0:
+    print("[info] Windows connectivity: {0}.".format(conn_static.shape))
+name = "connectivity"
+fname = os.path.join(inputs["outdir"], "{0}.npy".format(name))
+np.save(fname, conn_static)
+outputs[name] = fname
+conn_static = fisher_zscore(
+    conn_static, outdir=inputs["outdir"], cache=True, verbose=2)
+for n_states in inputs["states"]:
+    states, win_labels, _, _ = cluster_states(
+        conn=conn_static,
+        n_states=n_states,
+        outdir=inputs["outdir"],
+        init=500,
+        njobs=njobs,
+        return_raw=False,
+        verbose=2)
+    if verbose > 1:
+        print("[info] States:")
+        print(n_states, states.shape, win_labels.shape)
+    name = "states_{0}".format(n_states)
+    fname = os.path.join(inputs["outdir"], "{0}.npy".format(name))
+    np.save(fname, states)
+    outputs[name] = fname
+    name = "win_labels_{0}".format(n_states)
+    fname = os.path.join(inputs["outdir"], "{0}.npy".format(name))
+    np.save(fname, win_labels)
+    outputs[name] = fname
+    for cnt, state_arr in enumerate(states):
+        sortstate = np.concatenate(
+            (state_arr[::2], state_arr[1::2]), axis=0)
+        sortstate = np.concatenate(
+            (sortstate[:, ::2], sortstate[:, 1::2]), axis=1)
+        df = pd.DataFrame(
+            data=sortstate, index=labels.values(), columns=labels.values())
+        plotting.plot_array(df, vmin=-1, vmax=1,
+                            title="state_{0}_{1}".format(n_states, cnt))
+    for fig in [plt.figure(idx) for idx in plt.get_fignums()]:
+        fig.tight_layout()
+        name = fig.axes[0].get_title().replace(os.sep, "_")
+        fname = os.path.join(inputs["outdir"], "{0}.png".format(name))
+        outputs[name] = fname
+        fig.savefig(fname)
+
+
+"""
+Save metainformation
+"""
+logdir = os.path.join(inputs["outdir"], "logs")
+if not os.path.isdir(logdir):
+    os.mkdir(logdir)
+for name, final_struct in [("inputs", inputs), ("outputs", outputs),
+                           ("runtime", runtime)]:
+    log_file = os.path.join(logdir, "nicon_dynamic_{0}.json".format(name))
+    with open(log_file, "wt") as open_file:
+        json.dump(final_struct, open_file, sort_keys=True, check_circular=True,
+                  indent=4)
+if verbose > 1:
+    print("[info] Outputs:")
+    pprint(outputs)

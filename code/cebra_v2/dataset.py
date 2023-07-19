@@ -160,7 +160,7 @@ class Loader(torch.utils.data.DataLoader):
         elif data.discrete is not None :
             self.distribution = cebra_v2.distribution.Distribution_Discrete(len(data), data, time_delta, time_delta)
         else:
-            self.distribution = cebra_v2.distribution.Distribution(len(data), data, time_delta, time_delta)
+            self.distribution = cebra_v2.distribution.Distribution(len(data), data, time_delta)
         #    discrete=self.dindex,
         #    continuous=self.cindex,
         #    time_delta=self.time_offset)
