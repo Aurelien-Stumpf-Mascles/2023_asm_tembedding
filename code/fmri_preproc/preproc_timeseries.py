@@ -36,12 +36,12 @@ outdir_name = "{0}_timeseries".format(preproc)
 mask_file = "/neurospin/lbi/monkeyfmri/images/reference/mni-resampled_1by1by1.nii"
 atlas = "/neurospin/lbi/monkeyfmri/resting_state/references/rRM_F99_ROItemplate_MNI.nii"  # cocomac
 add_derivates = False
-add_compor = False
+add_compor = True
 fwhm = None  #3.
 tr = 2.4
 n_dummy_trs = 4
-low_pass = 0.08
-high_pass = 0.04
+low_pass = 0.1
+high_pass = 0.01
 locs = [(48, 35, 22), (21, 58, 33)]
 n_jobs = 10
 
@@ -125,7 +125,7 @@ def preproc_timeseries(image_file, mask_file, confounds_file, tr, output_dir,
     # Load data
     im = nibabel.load(image_file)
     mask_im = nibabel.load(mask_file)
-    mask_arr = mask_im.get_data()
+    mask_arr = mask_im.get_fdata()
     if len(np.unique(mask_arr)) not in (1, 2):
         mask_arr[mask_arr > 0] = 1
         mask_im = nibabel.Nifti1Image(mask_arr, mask_im.affine)
@@ -154,7 +154,7 @@ def preproc_timeseries(image_file, mask_file, confounds_file, tr, output_dir,
 
     # Clean signal
     clean_signals = nilearn.signal.clean(
-        signals, detrend=True, standardize="zscore",
+        signals, detrend=True, standardize=False,
         confounds=confounds, standardize_confounds=True,
         low_pass=low_pass, high_pass=high_pass, t_r=tr)
 
@@ -176,8 +176,8 @@ def preproc_timeseries(image_file, mask_file, confounds_file, tr, output_dir,
 
         # QC
         fig, axs = plt.subplots(2 * len(locs))
-        im_arr = im.get_data()
-        clean_arr = clean_im.get_data()
+        im_arr = im.get_fdata()
+        clean_arr = clean_im.get_fdata()
         print(im_arr.shape, clean_arr.shape)
         for cnt, (x, y, z) in enumerate(locs):
             axs[2 * cnt].plot(im_arr[x, y, z], color="r")
@@ -242,7 +242,7 @@ for index, row in df.iterrows():
         break
     """
 
-    outdir = "/neurospin/lbi/monkeyfmri/deepstim/workspace/2023_ASM_tembedding/gitproject/2023_asm_tembedding/data/TimeSeries"
+    outdir = "/neurospin/lbi/monkeyfmri/deepstim/workspace/2023_ASM_tembedding/gitproject/2023_asm_tembedding/data/DFCs/0.01-0.1_addcompor-False_standardize-False"
     dataset.append((fmri_file, confounds_file, outdir))
 
 print("nb runs: {0} / {1}".format(len(dataset), len(df)))
