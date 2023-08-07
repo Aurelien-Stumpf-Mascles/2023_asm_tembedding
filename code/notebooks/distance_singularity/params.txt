@@ -1,0 +1,6 @@
+path_dfc = '/neurospin/lbi/monkeyfmri/deepstim/database/ANESTHETIC_database/derivatives/reference_kmeans/inputs/inputs.npy'
+path_meta = '/neurospin/lbi/monkeyfmri/deepstim/database/ANESTHETIC_database/derivatives/reference_kmeans/inputs/metadata.tsv'
+path_distance = '/volatile/aurelien_stumpf_mascles/project/data/DistanceMatrices/all/distance_all.npy'
+session = 0
+
+python3 computation.py '/neurospin/lbi/monkeyfmri/deepstim/database/ANESTHETIC_database/derivatives/reference_kmeans/inputs/inputs.npy' '/neurospin/lbi/monkeyfmri/deepstim/database/ANESTHETIC_database/derivatives/reference_kmeans/inputs/metadata.tsv' '/volatile/aurelien_stumpf_mascles/project/data/DistanceMatrices/all/distance_all.npy' 0

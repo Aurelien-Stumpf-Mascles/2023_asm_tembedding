@@ -36,12 +36,12 @@ outdir_name = "{0}_timeseries".format(preproc)
 mask_file = "/neurospin/lbi/monkeyfmri/images/reference/mni-resampled_1by1by1.nii"
 atlas = "/neurospin/lbi/monkeyfmri/resting_state/references/rRM_F99_ROItemplate_MNI.nii"  # cocomac
 add_derivates = False
-add_compor = True
+add_compor = False
 fwhm = None  #3.
 tr = 2.4
 n_dummy_trs = 4
-low_pass = 0.1
-high_pass = 0.01
+low_pass = 0.01
+high_pass = 0.0025
 locs = [(48, 35, 22), (21, 58, 33)]
 n_jobs = 10
 
@@ -154,16 +154,15 @@ def preproc_timeseries(image_file, mask_file, confounds_file, tr, output_dir,
 
     # Clean signal
     clean_signals = nilearn.signal.clean(
-        signals, detrend=True, standardize=False,
+        signals, detrend=True, standardize=True,
         confounds=confounds, standardize_confounds=True,
         low_pass=low_pass, high_pass=high_pass, t_r=tr)
 
+    #clean_signals = nilearn.signal.clean(
+    #    signals, detrend=True, standardize=True, low_pass = low_pass, high_pass = high_pass, t_r=tr)
+
     # Reshape data
     clean_im = nilearn.masking.unmask(clean_signals, mask_im)
-
-    #clean_signals = nilearn.signal.clean(
-    #    signals, detrend=True, standardize=False, high_pass = 0.05, t_r=tr)
-    #clean_im = nilearn.masking.unmask(clean_signals, mask_im)
 
     # Smooth the data
     if fwhm is not None:
@@ -242,7 +241,7 @@ for index, row in df.iterrows():
         break
     """
 
-    outdir = "/neurospin/lbi/monkeyfmri/deepstim/workspace/2023_ASM_tembedding/gitproject/2023_asm_tembedding/data/DFCs/0.01-0.1_addcompor-False_standardize-False"
+    outdir = "/neurospin/lbi/monkeyfmri/deepstim/workspace/2023_ASM_tembedding/gitproject/2023_asm_tembedding/data/TimeSeries/0.0025-0.01-addcompor-False"
     dataset.append((fmri_file, confounds_file, outdir))
 
 print("nb runs: {0} / {1}".format(len(dataset), len(df)))

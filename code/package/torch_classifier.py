@@ -37,14 +37,39 @@ class MLP2(nn.Module):
         return x 
     
 class CNN1(nn.Module):
-    def __init__(self):
+    def __init__(self,n_classes):
         super(CNN1, self).__init__()
         self.fc1 = nn.Conv2d(1, 5, kernel_size=(5,5))
         self.fc2 = nn.Conv2d(5, 5, kernel_size=(3,3))
         self.fc3 = nn.MaxPool2d(kernel_size=(5, 5))
         self.fc4 = nn.Flatten()
         self.fc5 = nn.Linear(1125, 50)
-        self.fc6 = nn.Linear(50,3)
+        self.fc6 = nn.Linear(50,n_classes)
+        self.fc7 = nn.LogSoftmax(dim=1)
+    def forward(self,x):
+        x = self.fc1(x)
+        x = F.relu(x)
+        x = self.fc2(x)
+        x = F.relu(x)
+        x = self.fc3(x)
+        x = self.fc4(x)
+        x = F.relu(x)
+        x = self.fc5(x)
+        x = F.relu(x)
+        x = self.fc6(x)
+        x = F.relu(x)
+        x = self.fc7(x)
+        return x 
+    
+class CNN_Video(nn.Module):
+    def __init__(self,n_frames,n_classes):
+        super(CNN1, self).__init__()
+        self.fc1 = nn.Conv3d(n_frames, 10, kernel_size=(5,5))
+        self.fc2 = nn.Conv3d(10, 2, kernel_size=(3,3))
+        self.fc3 = nn.MaxPool3d(kernel_size=(2, 5, 5))
+        self.fc4 = nn.Flatten()
+        self.fc5 = nn.Linear(1125, 50)
+        self.fc6 = nn.Linear(50,n_classes)
         self.fc7 = nn.LogSoftmax(dim=1)
     def forward(self,x):
         x = self.fc1(x)
@@ -147,9 +172,12 @@ class BalancedBatchSampler(torch.utils.data.sampler.BatchSampler):
         return len(self.dataset) // self.batch_size
     
 # === Train === ###
-def Train(net,train_loader,test_loader,nb_epochs,lr):
+def Train(net,train_loader,test_loader,nb_epochs,lr, crit = "NLLL"):
     net.train()
-    criterion = nn.NLLLoss()
+    if crit == "BCE":
+        criterion = nn.BCELoss()
+    if crit == "NLLL":
+        criterion = nn.NLLLoss()
     optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9)
     batch_size = train_loader.batch_sampler.n_samples * train_loader.batch_sampler.n_classes
 

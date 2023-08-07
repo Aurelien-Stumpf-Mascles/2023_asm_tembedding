@@ -1,5 +1,3 @@
-'''Création de la distribution'''
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -33,15 +31,13 @@ class Distribution:
 
     def sample_conditional(self, reference_idx: torch.Tensor, num_samples) -> torch.Tensor:
         """Return indices from the conditional distribution knowing a batch of reference indices
-        Conditional distributions return a bTypeError: torch._VariableFunctionsClass.from_numpy() takes no keyword argumentsatch of indices. Indexing
+        Conditional distributions return a batch of indices. Indexing
         the dataset with these indices will return samples from
         the prior distribution.
         Args:
             reference_idx: The reference indices.
         Returns:
-            The positive indices. The positive samples will match the reference
-            samples in their discrete variable, and will otherwise be drawn from
-            the :py:class:`.TimedeltaDistribution`.
+            The positive indices.
         """
 
         if reference_idx.dim() != 1:
@@ -91,16 +87,16 @@ class Distribution_Discrete:
         return res
 
     def sample_conditional(self, reference_idx: torch.Tensor, num_samples) -> torch.Tensor:
-        """Return indices from the conditional distribution knowing a batch of reference indices
-        Conditional distributions return a bTypeError: torch._VariableFunctionsClass.from_numpy() takes no keyword argumentsatch of indices. Indexing
+        """Return indices from the conditional distribution knowing a batch of reference indices.
+        The Conditional distribution takes points closer in time with probability 0.5 and 
+        points with the same label with probability 0.5.
+        Conditional distributions return a batch of indices. Indexing
         the dataset with these indices will return samples from
         the prior distribution.
         Args:
             reference_idx: The reference indices.
         Returns:
-            The positive indices. The positive samples will match the reference
-            samples in their discrete variable, and will otherwise be drawn from
-            the :py:class:`.TimedeltaDistribution`.
+            The positive indices.
         """
 
         if reference_idx.dim() != 1:
@@ -131,6 +127,9 @@ class Distribution_MatrixDistance:
         self.offset = offset
 
     def generate_graph(self,matrix_delta):
+        """
+        This function computes the neighbourhood of points at distance smaller that matrix_delta from the reference.
+        """
         graph = {}
         for t in range(self.T):
             graph[t] = torch.argwhere(self.distance[t,:] < matrix_delta).reshape((-1))
@@ -149,6 +148,9 @@ class Distribution_MatrixDistance:
         return torch.randint(self.T - self.offset,size = (num_samples,))
     
     def sample_graph(self,reference_idx):
+        """
+        This function chooses a random neighbour among the reference neighbourhood.
+        """
         res = torch.zeros(len(reference_idx),dtype = torch.int)
         for i in range(len(reference_idx)) : 
             t = reference_idx[i]
@@ -158,15 +160,13 @@ class Distribution_MatrixDistance:
 
     def sample_conditional(self, reference_idx: torch.Tensor, num_samples) -> torch.Tensor:
         """Return indices from the conditional distribution knowing a batch of reference indices
-        Conditional distributions return a bTypeError: torch._VariableFunctionsClass.from_numpy() takes no keyword argumentsatch of indices. Indexing
+        Conditional distributions return a batch of indices. Indexing
         the dataset with these indices will return samples from
         the prior distribution.
         Args:
             reference_idx: The reference indices.
         Returns:
-            The positive indices. The positive samples will match the reference
-            samples in their discrete variable, and will otherwise be drawn from
-            the :py:class:`.TimedeltaDistribution`.
+            The positive indices.
         """
 
         if reference_idx.dim() != 1:
@@ -515,7 +515,7 @@ class MultiSessionDistribution_TimeAndDistanceMatrix:
             the :py:class:`.TimedeltaDistribution`.
         """
         num_samples = len(reference_idx)
-        a = reference_idx[:num_samples]
+        a = reference_idx[:num_samples//2]
         diff_time = torch.randint(self.time_delta, (a.shape[0],))
         a[:,1] += diff_time
 

@@ -96,6 +96,8 @@ def similarity(conn, mask=None, metric="corrcoef"):
         conn_flat = [arr[np.where(mask == 1)] for arr in conn_flat]
     if metric == "corrcoef":
         similarity = np.corrcoef(conn_flat)
+    elif metric == "custom":
+        similarity = np.
     elif metric == "cosine":
         similarity = cosine_similarity(conn_flat)
     elif metric == "euclidean":
