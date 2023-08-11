@@ -3,6 +3,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
+class LinearLayer(nn.Module):
+    def __init__(self,input_dim,output_dim = 6):
+        super(MLP, self).__init__()
+        self.input_dim = input_dim
+        self.fc1 = nn.Linear(in_features=input_dim, out_features=1)
+    def forward(self,x):
+        x = self.fc1(x)
+        return x 
+
 class MLP(nn.Module):
     def __init__(self,input_dim,output_dim = 6):
         super(MLP, self).__init__()
@@ -60,31 +69,6 @@ class CNN1(nn.Module):
         x = F.relu(x)
         x = self.fc7(x)
         return x 
-    
-class CNN_Video(nn.Module):
-    def __init__(self,n_frames,n_classes):
-        super(CNN1, self).__init__()
-        self.fc1 = nn.Conv3d(n_frames, 10, kernel_size=(5,5))
-        self.fc2 = nn.Conv3d(10, 2, kernel_size=(3,3))
-        self.fc3 = nn.MaxPool3d(kernel_size=(2, 5, 5))
-        self.fc4 = nn.Flatten()
-        self.fc5 = nn.Linear(1125, 50)
-        self.fc6 = nn.Linear(50,n_classes)
-        self.fc7 = nn.LogSoftmax(dim=1)
-    def forward(self,x):
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.fc2(x)
-        x = F.relu(x)
-        x = self.fc3(x)
-        x = self.fc4(x)
-        x = F.relu(x)
-        x = self.fc5(x)
-        x = F.relu(x)
-        x = self.fc6(x)
-        x = F.relu(x)
-        x = self.fc7(x)
-        return x 
 
 class SimpleDataset(torch.utils.data.Dataset):
     """Face Landmarks dataset."""
@@ -122,10 +106,7 @@ print(reg.coef_)g): Path to the csv file with annotations.
         targets = self.y[idx]
 
         return batch,targets
-    
-    def __iter__(self):
-        for idx in range(self.X.shape[0]):
-            yield self.__getitem__(idx)
+
 
 
 class BalancedBatchSampler(torch.utils.data.sampler.BatchSampler):
@@ -172,12 +153,8 @@ class BalancedBatchSampler(torch.utils.data.sampler.BatchSampler):
         return len(self.dataset) // self.batch_size
     
 # === Train === ###
-def Train(net,train_loader,test_loader,nb_epochs,lr, crit = "NLLL"):
+def Train(net,train_loader,test_loader,nb_epochs,lr,criterion = nn.NLLLoss()):
     net.train()
-    if crit == "BCE":
-        criterion = nn.BCELoss()
-    if crit == "NLLL":
-        criterion = nn.NLLLoss()
     optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9)
     batch_size = train_loader.batch_sampler.n_samples * train_loader.batch_sampler.n_classes
 
@@ -193,6 +170,7 @@ def Train(net,train_loader,test_loader,nb_epochs,lr, crit = "NLLL"):
             output = net(batch)
 
             loss = criterion(output, targets)
+            print(loss)
 
             optimizer.zero_grad()
             loss.backward()
@@ -204,7 +182,7 @@ def Train(net,train_loader,test_loader,nb_epochs,lr, crit = "NLLL"):
 
             compteur += 1
 
-        if epoch % 10 == 0: 
+        if epoch % 3 == 0 : 
             print('Train loss {:.4f}, Train accuracy {:.2f}%'.format(
             train_loss / compteur, 100 * train_correct / (compteur * batch_size)))
 

@@ -307,10 +307,16 @@ class MultiSessionDistribution_DistanceMatrix:
 
     def generate_graph(self,matrix_delta):
         graph = {}
+        list_nodes = []
         for session in range(self.data.num_sessions):
             for t in range(self.T):
-                graph[(session,t)] = torch.argwhere(self.distance.neural[session,t,:] < matrix_delta)
-        return graph
+                accu = torch.argwhere(self.distance[session,t,:] < matrix_delta)
+                #indices_to_keep = torch.flatten(torch.nonzero(torch.where(accu[:,0] != session,1,0) + torch.where(torch.abs(accu[:,1]-t) > 30,1,0)))
+                #graph[(session,t)] = torch.index_select(accu,0,indices_to_keep)
+                graph[(session,t)] = accu
+                if len(graph[(session,t)]) > 0:
+                    list_nodes.append([session,t])
+        return graph,torch.tensor(list_nodes,dtype=int)
         
     def sample_graph(self,reference_idx):
         pos_idx = torch.zeros(reference_idx.shape,dtype = torch.int)
