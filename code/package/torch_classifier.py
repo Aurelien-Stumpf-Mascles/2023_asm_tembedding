@@ -170,7 +170,6 @@ def Train(net,train_loader,test_loader,nb_epochs,lr,criterion = nn.NLLLoss()):
             output = net(batch)
 
             loss = criterion(output, targets)
-            print(loss)
 
             optimizer.zero_grad()
             loss.backward()

@@ -97,6 +97,7 @@ class EuclideanInfoNCE():
     def __call__(self, ref: torch.Tensor, pos: torch.Tensor,
                   neg: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         pos_dist, neg_dist = euclidean_similarity(ref, pos, neg)
+
         return infonce(pos_dist/self.temperature,neg_dist/self.temperature,self.beta)
 
 ############ TEST ################################################################

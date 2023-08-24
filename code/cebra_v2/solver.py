@@ -9,6 +9,7 @@ from typing import List
 from typing import Tuple
 from typing import Union
 from typing import Callable
+from sklearn.linear_model import LogisticRegression
 
 class SingleSessionSolver():
     """Single session training with a symmetric encoder.
@@ -24,7 +25,9 @@ class SingleSessionSolver():
         "pos": [],
         "neg": [],
         "total": [],
-        "temperature": []
+        "temperature": [],
+        "train_score": [],
+        "test_score": []
         }
         self.history = []
 
@@ -92,6 +95,7 @@ class SingleSessionSolver():
     def fit(
         self,
         loader: cebra_v2.dataset.Loader,
+        validation_set, 
         early_stopping = False
     ):
         """Train model for the specified number of steps.
@@ -111,6 +115,10 @@ class SingleSessionSolver():
 
         iterator = loader
         self.model.train()
+        X_train = iterator.dataset.neural
+        y_train = iterator.dataset.y.reshape((-1))
+        X_val = validation_set.neural
+        y_val = validation_set.y.reshape((-1))
 
         if early_stopping :
             compteur_stop = 0
@@ -137,8 +145,20 @@ class SingleSessionSolver():
                 stats = self.step(batch)
 
                 if id_step % 100 == 0 : 
+                    self.model.eval()
+                    X_train_transformed = self.model(X_train).detach().numpy().reshape((-1,3))
+                    X_val_transformed = self.model(X_val).detach().numpy().reshape((-1,3))
+                    clf = LogisticRegression(random_state=0).fit(X_train_transformed, y_train)
+                    train_score = clf.score(X_train_transformed,y_train)
+                    test_score = clf.score(X_val_transformed,y_val)
+                    self.log["train_score"].append(train_score)
+                    self.log["test_score"].append(test_score)
                     print('Epoch {}'.format(id_step))
-                    print('Train loss {:.4f}, Train accuracy {:.2f}%'.format(stats["total"],0))
+                    print('Training : total loss {:.4f} - pos loss {:.4f} - neg loss {:.4f}'.format(stats["total"],stats["pos"],stats["neg"]))
+                    print("Train accuracy {:.4f}".format(train_score))
+                    print("Test accuracy {:.4f}".format(test_score))
+                    self.model.train()
+
                 
 class MultiSessionSolver():
     """Multi session training, contrasting pairs of neural data."""

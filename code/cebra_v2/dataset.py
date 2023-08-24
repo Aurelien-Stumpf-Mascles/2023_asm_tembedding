@@ -214,23 +214,14 @@ class SimpleMultiSessionDataset(torch.utils.data.Dataset):
     def __init__(
             self,
             neural,
-            continuous = None,
-            discrete = None,
+            y,
             offset: int = 1,
         ):
         super().__init__()
 
         self.neural = self._to_tensor(neural, torch.FloatTensor).float()
 
-        if discrete is not None:
-            self.discrete = self._to_tensor(discrete, torch.LongTensor)
-        else :
-            self.discrete = None
-
-        if continuous is not None : 
-            self.continuous = self._to_tensor(continuous, torch.FloatTensor)
-        else : 
-            self.continuous = None
+        self.y = self._to_tensor(y, torch.LongTensor)
 
         self.offset = offset
         self.num_sessions = self.set_num_sessions()
@@ -269,17 +260,19 @@ class MultiSessionLoader(torch.utils.data.DataLoader):
     dimension, it is better to use a :py:class:`cebra.data.single_session.MixedDataLoader`.
     """
 
-    def __init__(self,data,num_steps = 100,batch_size = 128,time_delta = 1,matrix_delta = 20, distance = None, metric = None): 
+    def __init__(self,data,num_steps = 100,batch_size = 128,time_delta = 1,matrix_delta = 20, discrete = None, distance = None, metric = None): 
         super(MultiSessionLoader,self).__init__(dataset = data,batch_size = batch_size)
         self.num_steps = num_steps
         if distance is not None and time_delta > 0:
             self.distribution = cebra_v2.distribution.MultiSessionDistribution_TimeAndDistanceMatrix(data.get_duration(), data, distance, time_delta, matrix_delta)
         elif distance is not None and time_delta == 0:
             self.distribution = cebra_v2.distribution.MultiSessionDistribution_DistanceMatrix(data.get_duration(), data, distance, matrix_delta)
-        elif data.discrete is not None and time_delta > 0:
-            self.distribution = cebra_v2.distribution.MultiSessionDistribution_TimeAndDiscrete(data.get_duration(), data, time_delta, data.discrete)
-        elif data.discrete is not None and time_delta == 0:
-            self.distribution = cebra_v2.distribution.MultiSessionDistribution_Discrete(data.get_duration(), data, data.discrete)
+        elif discrete is not None and time_delta > 0:
+            self.discrete = torch.from_numpy(discrete)
+            self.distribution = cebra_v2.distribution.MultiSessionDistribution_TimeAndDiscrete(data.get_duration(), data, time_delta, torch.from_numpy(discrete))
+        elif discrete is not None and time_delta == 0:
+            self.discrete = torch.from_numpy(discrete)
+            self.distribution = cebra_v2.distribution.MultiSessionDistribution_Discrete(data.get_duration(), data, torch.from_numpy(discrete))
         elif time_delta is not None : 
             self.distribution = cebra_v2.distribution.MultiSessionDistribution_Time(data.get_duration(), data, time_delta)
         else : 

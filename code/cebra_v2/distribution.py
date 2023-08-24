@@ -234,7 +234,7 @@ class MultiSessionDistribution_Time:
             the :py:class:`.TimedeltaDistribution`.
         """
         num_samples = len(reference_idx)
-        a = reference_idx[:num_samples]
+        a = torch.clone(reference_idx[:num_samples])
         diff_time = torch.randint(self.time_delta, (a.shape[0],))
         a[:,1] += diff_time
         
@@ -521,7 +521,7 @@ class MultiSessionDistribution_TimeAndDistanceMatrix:
             the :py:class:`.TimedeltaDistribution`.
         """
         num_samples = len(reference_idx)
-        a = reference_idx[:num_samples//2]
+        a = torch.clone(reference_idx[:num_samples//2])
         diff_time = torch.randint(self.time_delta, (a.shape[0],))
         a[:,1] += diff_time
 
@@ -622,7 +622,7 @@ class MultiSessionDistribution_TimeAndDiscrete:
         """
         
         num_samples = len(reference_idx)
-        a = reference_idx[:num_samples]
+        a = torch.clone(reference_idx[:num_samples//2])
         diff_time = torch.randint(self.time_delta, (a.shape[0],))
         a[:,1] += diff_time
 
